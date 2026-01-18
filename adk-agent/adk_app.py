@@ -1,0 +1,104 @@
+import asyncio
+import os
+from google.adk import Agent, Runner
+from google.genai import types
+from google.adk.sessions import InMemorySessionService
+from google.adk.models import Gemini
+from google.adk.tools import FunctionTool
+from config import MODEL_NAME, GEMINI_API_KEY
+from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn
+
+# Ensure GOOGLE_API_KEY is set for ADK
+if GEMINI_API_KEY:
+    os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
+
+# Define Tools
+research_tool = FunctionTool(research_tool_fn)
+divider_tool = FunctionTool(divider_tool_fn)
+prompt_tool = FunctionTool(prompt_tool_fn)
+
+async def main():
+    print("--- Initializing Storyboard ADK Agent ---")
+    
+    # Configure the Model
+    model = Gemini(model=MODEL_NAME)
+    
+    # Define the Agent
+    agent = Agent(
+        name="storyboard_agent",
+        model=model,
+        tools=[research_tool, divider_tool, prompt_tool],
+        instruction="""
+        You are an autonomous Storyboard Director Agent. 
+        Your goal is to create a detailed storyboard plan and image prompts for a video.
+
+        CRITICAL INSTRUCTION:
+        1. Analyze the user's input topic.
+        2. IF the input contains sufficient detail to create scenes (e.g., a full story or detailed description), SKIP research and proceed directly to dividing the scenes.
+        3. IF the input is vague or just a topic name (e.g., "History of Chess"), call `research_tool_fn` to get detailed information FIRST.
+        
+        Workflow:
+        1. (Optional) Call `research_tool_fn` if more context is needed.
+        2. Call `divider_tool_fn` (with either research output or original context) to get a list of scenes. 
+        3. For EACH scene returned by `divider_tool_fn`:
+           - Call `prompt_tool_fn` with the scene description to generate a specialized whiteboard image prompt.
+        4. Compile all results into a final storyboard format.
+        5. Output the final storyboard plan with scenes (narration, description) and their corresponding image prompts.
+        """
+    )
+    
+    # Session Management
+    APP_NAME = "storyboard_app"
+    USER_ID = "current_user"
+    SESSION_ID = "session_001"
+    
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=SESSION_ID
+    )
+    
+    # Runner Setup
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service
+    )
+    
+    context = input("Enter the context for your storyboard video: ")
+    print(f"\n--- Agent starting work on: {context} ---")
+    
+    # Create the new message object as expected by run_async
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part(text=f"Create a storyboard for: {context}")]
+    )
+
+    print("Agent is thinking and using tools... (This may take a while)\n")
+    
+    final_text = ""
+    async for event in runner.run_async(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        new_message=new_message
+    ):
+        # Handle different event types if needed
+        # For now, we just want to see the progress and final output
+        if hasattr(event, 'text') and event.text:
+            print(event.text, end="", flush=True)
+            final_text += event.text
+        elif hasattr(event, 'call_stack_event'):
+            # Tool calls or sub-agent calls
+            # print(f"\n[Agent Action: {event.call_stack_event}]")
+            pass
+
+    print("\n\n--- Agent Work Complete ---")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nAgent stopped by user.")
+    except Exception as e:
+        print(f"\nAn error occurred: {e}")
