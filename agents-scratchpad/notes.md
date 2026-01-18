@@ -1,0 +1,7 @@
+- Its Jan 3, I have 0 idea right now about anything called adk, agents, mcp. Goal is to learn it in next 2 days 
+- Ok, now I have some context after scratching my head for some time
+- Adk is used to orchestrate agents. 
+- MCP has server and client. Each server has multiple tools. 1 tool does a job, like 1 assigned activity. 
+- MCPs biggest advantage is: Discovery tool (will come on this soon)
+- Tool word is used by ADK as well as MCP. ADK also has tool (atomic tool which takes a input and does a specific task) and MCP has tools. But on larger scale, prefer MCP tools because ADK will need a huge token context to tell during each call it uses to understand all tools it has for functionality. But on other hand if all tools are assigned to 1 or multiple MCP server, the agent just ask, this is my task, what tool should I use, and MCP with its discovery tools helps witht he right tool. 
+- MCP host has multiple MCP clients. MCP server is nothing but a server with multiple MCP tools as endpoints.

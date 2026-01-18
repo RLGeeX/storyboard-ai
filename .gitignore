@@ -3,6 +3,8 @@
 **/*.pt
 ./draw-video/images/masks
 /masks
+**/*.env
+*.env
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
