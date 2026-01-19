@@ -1,4 +1,4 @@
-from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn
+from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn
 import time
 import json
 
@@ -18,7 +18,29 @@ def test_research():
     print("-" * 20)
     return result
 
-def test_divider_and_prompt(research_output=None):
+def test_image_gen():
+    print("\n--- Testing Image Generation Tool ---")
+    prompt = "A professional whiteboard animation of a coder working on a complex AI project."
+    print(f"Generating image for: {prompt}")
+    
+    image_path = image_gen_tool_fn(prompt)
+    
+    if image_path and "Error" not in image_path:
+        print(f"SUCCESS: Image generated and saved to {image_path}")
+        
+        # Test consistency
+        prompt2 = "The coder successfully completes the AI project and celebrates."
+        print(f"Generating second image for consistency: {prompt2}")
+        image_path2 = image_gen_tool_fn(prompt2, reference_image_path=image_path)
+        
+        if image_path2 and "Error" not in image_path2:
+            print(f"SUCCESS: Second image saved to {image_path2}")
+        else:
+            print(f"FAILED: {image_path2}")
+    else:
+        print(f"FAILED: {image_path}")
+
+def test_divider_and_prompt(research_output=None, test_image=False):
     if research_output is None:
         research_output = """
         Chess is a game played between two opponents on opposite sides of a 64-square board containing 32 pieces. 
@@ -39,6 +61,10 @@ def test_divider_and_prompt(research_output=None):
             prompt = prompt_tool_fn(description)
             print(f"Scene Description: {description}")
             print(f"Generated Prompt: {prompt}")
+            
+            if test_image:
+                print("\n--- Testing Image Gen with the generated prompt ---")
+                image_gen_tool_fn(prompt)
         else:
             print("First scene logic error: no description found.")
     else:
@@ -48,15 +74,18 @@ if __name__ == "__main__":
     import sys
     
     print("Select test to run:")
-    print("1. Research + Divider + Prompt (Full Flow)")
+    print("1. Research + Divider + Prompt + Image (Full Flow)")
     print("2. Divider + Prompt (Fast, using mock data)")
+    print("3. Standalone Image Generation Test")
     
-    choice = input("Enter choice (1/2): ")
+    choice = input("Enter choice (1/2/3): ")
     
     if choice == '1':
         res = test_research()
-        test_divider_and_prompt(res)
+        test_divider_and_prompt(res, test_image=True)
     elif choice == '2':
         test_divider_and_prompt()
+    elif choice == '3':
+        test_image_gen()
     else:
         print("Invalid choice.")

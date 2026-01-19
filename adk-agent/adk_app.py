@@ -6,7 +6,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.models import Gemini
 from google.adk.tools import FunctionTool
 from config import MODEL_NAME, GEMINI_API_KEY
-from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn
+from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn
 
 # Ensure GOOGLE_API_KEY is set for ADK
 if GEMINI_API_KEY:
@@ -16,6 +16,7 @@ if GEMINI_API_KEY:
 research_tool = FunctionTool(research_tool_fn)
 divider_tool = FunctionTool(divider_tool_fn)
 prompt_tool = FunctionTool(prompt_tool_fn)
+image_gen_tool = FunctionTool(image_gen_tool_fn)
 
 async def main():
     print("--- Initializing Storyboard ADK Agent ---")
@@ -27,10 +28,10 @@ async def main():
     agent = Agent(
         name="storyboard_agent",
         model=model,
-        tools=[research_tool, divider_tool, prompt_tool],
+        tools=[research_tool, divider_tool, prompt_tool, image_gen_tool],
         instruction="""
         You are an autonomous Storyboard Director Agent. 
-        Your goal is to create a detailed storyboard plan and image prompts for a video.
+        Your goal is to create a detailed storyboard plan, image prompts, and generate the final images for a video.
 
         CRITICAL INSTRUCTION:
         1. Analyze the user's input topic.
@@ -42,8 +43,10 @@ async def main():
         2. Call `divider_tool_fn` (with either research output or original context) to get a list of scenes. 
         3. For EACH scene returned by `divider_tool_fn`:
            - Call `prompt_tool_fn` with the scene description to generate a specialized whiteboard image prompt.
-        4. Compile all results into a final storyboard format.
-        5. Output the final storyboard plan with scenes (narration, description) and their corresponding image prompts.
+           - Call `image_gen_tool_fn` with the generated prompt to create the visual asset. 
+           - For aesthetic consistency, pass the path of the previously generated image as `reference_image_path` to the NEXT `image_gen_tool_fn` call if it exists.
+        4. Compile all results into a final storyboard format, including paths to the generated images.
+        5. Output the final storyboard plan with scenes (narration, description), their corresponding image prompts, and image file paths.
         """
     )
     
