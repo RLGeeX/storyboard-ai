@@ -1,11 +1,12 @@
 from google import genai
 from google.genai import types
 from PIL import Image
-from config import GEMINI_API_KEY, MODEL_NAME, DEEP_RESEARCH_MODEL
+from config import GEMINI_API_KEY, MODEL_NAME, DEEP_RESEARCH_MODEL, IMAGE_GEN_MODEL, TTS_MODEL
 import time
 import json
 import re
 import os
+import wave
 from typing import List, Dict, Any
 
 # Setup GenAI Client
@@ -161,9 +162,9 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
             except Exception as e:
                 print(f"Warning: Could not read reference image {reference_image_path}: {e}")
 
-        # Use gemini-2.5-flash-image with generate_content as per documentation
+        # Use the configured image generation model
         response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
+            model=IMAGE_GEN_MODEL,
             contents=contents,
         )
         
@@ -183,6 +184,105 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
             return output_path
         
         return "Error: No image was generated in the response. Check logs for model text."
-
     except Exception as e:
         return f"An error occurred during image generation: {str(e)}"
+
+def save_pcm_to_wav(filename: str, pcm: bytes, channels: int = 1, rate: int = 24000, sample_width: int = 2):
+    """
+    Saves raw PCM data to a .wav file.
+    """
+    try:
+        with wave.open(filename, "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(sample_width)
+            wf.setframerate(rate)
+            wf.writeframes(pcm)
+        return True
+    except Exception as e:
+        print(f"Error saving wave file: {e}")
+        return False
+
+def generate_tts_audio_tool_fn(text: str, speaker_one: str = None, speaker_two: str = None) -> str:
+    """
+    Generates high-quality TTS audio from text using Gemini 2.5 Flash TTS.
+    Supports up to 2 speakers for conversational text.
+    
+    Args:
+        text: The text to convert to speech. Use 'Speaker: text' format for multi-speaker.
+        speaker_one: Optional name of the first speaker (e.g., 'Joe').
+        speaker_two: Optional name of the second speaker (e.g., 'Jane').
+    Returns:
+        The path to the generated .wav file or an error message.
+    """
+    if not client:
+        return "Error: GEMINI_API_KEY not configured."
+
+    print(f"Generating TTS for: {text[:50]}...")
+
+    try:
+        # Determine if we should use MultiSpeakerVoiceConfig
+        speech_config = None
+        if speaker_one or speaker_two:
+            speaker_voice_configs = []
+            if speaker_one:
+                speaker_voice_configs.append(
+                    types.SpeakerVoiceConfig(
+                        speaker=speaker_one,
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name='Kore')
+                        )
+                    )
+                )
+            if speaker_two:
+                speaker_voice_configs.append(
+                    types.SpeakerVoiceConfig(
+                        speaker=speaker_two,
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name='Puck')
+                        )
+                    )
+                )
+            
+            speech_config = types.SpeechConfig(
+                multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                    speaker_voice_configs=speaker_voice_configs
+                )
+            )
+        else:
+            # Single speaker default
+            speech_config = types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name='Kore')
+                )
+            )
+
+        response = client.models.generate_content(
+            model=TTS_MODEL,
+            contents=text,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=speech_config,
+            )
+        )
+
+        # Extract audio data
+        if not response.candidates or not response.candidates[0].content.parts:
+            return "Error: No audio generated in response candidates."
+        
+        audio_part = response.candidates[0].content.parts[0]
+        if audio_part.inline_data is None:
+            return "Error: No inline audio data found in the response."
+
+        data = audio_part.inline_data.data
+        
+        timestamp = int(time.time())
+        output_path = f"generated_audio_{timestamp}.wav"
+        
+        if save_pcm_to_wav(output_path, data):
+            print(f"TTS audio generated and saved to: {output_path}")
+            return output_path
+        
+        return "Error: Failed to save wave file."
+
+    except Exception as e:
+        return f"An error occurred during TTS generation: {str(e)}"

@@ -10,6 +10,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = "gemini-2.5-flash" 
 # Deep Research Model
 DEEP_RESEARCH_MODEL = "deep-research-pro-preview-12-2025"
+# Image Generation Model
+IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
+# TTS Model
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
 
 if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")

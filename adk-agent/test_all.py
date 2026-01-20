@@ -1,4 +1,4 @@
-from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn
+from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn, generate_tts_audio_tool_fn
 import time
 import json
 
@@ -70,6 +70,29 @@ def test_divider_and_prompt(research_output=None, test_image=False):
     else:
         print("Divider tool failed to generate scenes or output is not a list.")
 
+def test_tts():
+    print("\n--- Testing TTS Generation Tool ---")
+    
+    # 1. Single Speaker Test
+    text_single = "Say cheerfully: Have a wonderful day!"
+    print(f"Testing Single Speaker TTS: '{text_single}'")
+    audio_path = generate_tts_audio_tool_fn(text_single)
+    if audio_path and "Error" not in audio_path:
+        print(f"SUCCESS: Single speaker audio saved to {audio_path}")
+    else:
+        print(f"FAILED: {audio_path}")
+
+    # 2. Multi-Speaker Test
+    prompt_multi = """TTS the following conversation between Joe and Jane:
+             Joe: How's it going today Jane?
+             Jane: Not too bad, how about you?"""
+    print("\nTesting Multi-Speaker TTS (Joe and Jane)")
+    audio_path_multi = generate_tts_audio_tool_fn(prompt_multi, speaker_one="Joe", speaker_two="Jane")
+    if audio_path_multi and "Error" not in audio_path_multi:
+        print(f"SUCCESS: Multi-speaker audio saved to {audio_path_multi}")
+    else:
+        print(f"FAILED: {audio_path_multi}")
+
 if __name__ == "__main__":
     import sys
     
@@ -77,8 +100,9 @@ if __name__ == "__main__":
     print("1. Research + Divider + Prompt + Image (Full Flow)")
     print("2. Divider + Prompt (Fast, using mock data)")
     print("3. Standalone Image Generation Test")
+    print("4. Standalone TTS Generation Test")
     
-    choice = input("Enter choice (1/2/3): ")
+    choice = input("Enter choice (1/2/3/4): ")
     
     if choice == '1':
         res = test_research()
@@ -87,5 +111,7 @@ if __name__ == "__main__":
         test_divider_and_prompt()
     elif choice == '3':
         test_image_gen()
+    elif choice == '4':
+        test_tts()
     else:
         print("Invalid choice.")
