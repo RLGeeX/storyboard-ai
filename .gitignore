@@ -1,5 +1,6 @@
 # Temporary
 **/sam3
+**/output
 
 **/*.mp4
 **/*.pkl
@@ -138,3 +139,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# User requested ignores
+output/
+sam3/

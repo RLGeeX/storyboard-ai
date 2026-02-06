@@ -6,7 +6,8 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.models import Gemini
 from google.adk.tools import FunctionTool
 from config import MODEL_NAME, GEMINI_API_KEY
-from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn, generate_tts_audio_tool_fn
+from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn, generate_tts_audio_tool_fn, set_output_dir
+import time
 
 # Ensure GOOGLE_API_KEY is set for ADK
 if GEMINI_API_KEY:
@@ -21,6 +22,11 @@ tts_tool = FunctionTool(generate_tts_audio_tool_fn)
 
 async def main():
     print("--- Initializing Storyboard ADK Agent ---")
+    
+    # Create a fresh output directory for this run
+    timestamp = int(time.time())
+    run_output_dir = os.path.join("outputs", f"run_{timestamp}")
+    set_output_dir(run_output_dir)
     
     # Configure the Model
     model = Gemini(model=MODEL_NAME)
@@ -73,6 +79,11 @@ async def main():
     
     context = input("Enter the context for your storyboard video: ")
     print(f"\n--- Agent starting work on: {context} ---")
+    
+    # Save the input context to the run folder
+    context_file_path = os.path.join(run_output_dir, "input_context.txt")
+    with open(context_file_path, "w", encoding="utf-8") as f:
+        f.write(context)
     
     # Create the new message object as expected by run_async
     new_message = types.Content(

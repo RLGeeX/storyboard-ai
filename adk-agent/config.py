@@ -14,6 +14,8 @@ DEEP_RESEARCH_MODEL = "deep-research-pro-preview-12-2025"
 IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
 # TTS Model
 TTS_MODEL = "gemini-2.5-flash-preview-tts"
+# SAM Segmentation Model URL
+SAM_API_URL = "https://sam3-app-1040077537378.us-east4.run.app/predict"
 
 if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")
