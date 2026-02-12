@@ -14,6 +14,7 @@ from tools import (
     merge_audio_video_tool_fn,
     concatenate_videos_tool_fn,
     add_subtitle_tool_fn,
+    burn_subtitles_to_video_tool_fn,
     transcribe_audio_tool_fn,
     set_output_dir
 )
@@ -265,6 +266,49 @@ def test_transcribe_audio():
     else:
         print(f"FAILED: {result}")
 
+def test_video_subtitle():
+    print("\n--- Testing Video Subtitle Burning Tool ---")
+    
+    # 1. Generate a dummy video with audio first
+    print("Step 1: Generating dummy video with audio...")
+    video_path = os.path.join(GLOBAL_TEST_DIR, "video_for_subs.mp4")
+    cmd = [
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=black:s=640x480:d=5",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=5",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        video_path
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"Dummy video created at {video_path}")
+    except Exception as e:
+        print(f"FAILED to create dummy video. Error: {e}")
+        return
+
+    # 2. Create a mock subtitle JSON
+    print("Step 2: Creating mock subtitle JSON...")
+    sub_data = {
+        "subtitles": [
+            {"start": 0.5, "end": 2.0, "text": "Hello, this is a test of burned-in subtitles."},
+            {"start": 2.5, "end": 4.5, "text": "FFmpeg is now overlaying this text on the video."}
+        ]
+    }
+    sub_path = os.path.join(GLOBAL_TEST_DIR, "mock_subs.json")
+    with open(sub_path, 'w') as f:
+        json.dump(sub_data, f)
+
+    # 3. Burn subtitles
+    print("Step 3: Burning subtitles...")
+    output_path = os.path.join(GLOBAL_TEST_DIR, "video_with_burned_subs.mp4")
+    result = burn_subtitles_to_video_tool_fn(video_path, sub_path, output_path)
+    
+    if result and "Error" not in result:
+        print(f"SUCCESS: Subtitled video saved to {result}")
+    else:
+        print(f"FAILED: {result}")
+
 def main():
     global GLOBAL_TEST_DIR
     
@@ -290,9 +334,9 @@ def main():
         "6": ("Segmentation Tool", test_segmentation),
         "7": ("Merge A/V Tool", test_merge_av),
         "8": ("Concatenate Videos Tool", test_concatenate_av),
-        "8": ("Concatenate Videos Tool", test_concatenate_av),
-        "9": ("Subtitle Tool", test_subtitle),
-        "10": ("Transcribe Audio Tool", test_transcribe_audio)
+        "9": ("Subtitle Tool (Image)", test_subtitle),
+        "10": ("Transcribe Audio Tool", test_transcribe_audio),
+        "11": ("Video Subtitle Tool (Burn-in)", test_video_subtitle)
     }
     
     print("\nAvailable Tests:")

@@ -320,8 +320,8 @@ def draw_whiteboard_animations(
             skip_rate=variables.bg_object_skip_rate,
         )
     else:
-        variables.split_len = 15
-        variables.object_skip_rate = 8
+        # variables.split_len = 15
+        # variables.object_skip_rate = 8
         # draw the entire image without any mask
         draw_masked_object(
             variables=variables,
@@ -364,7 +364,7 @@ if __name__ == "__main__":
     img_path = "./images/2.png"
     save_path = "./save_videos"
     mask_path = None 
-    mask_path = "./images/2.json"  # some json path
+    # mask_path = "./images/2.json"  # some json path
     # if no masks are available, put mask_path = None
     hand_path = "./images/drawing-hand.png"
     hand_mask_path = "./images/hand-mask.png"

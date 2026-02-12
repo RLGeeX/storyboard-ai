@@ -8,12 +8,31 @@ from . import utils
 
 def segmentation_tool_fn(image_path: str) -> str:
     """
-    Identifies main objects in an image using Gemini, then segments them using a hosted SAM3 model.
+    Performs instance segmentation on an image.
+    
+    This tool follows a two-step process:
+    1. It uses a Gemini model to identify major, distinct objects in the image.
+    2. For each identified object, it calls a hosted SAM3 (Segment Anything Model) 
+       API to generate a high-quality segmentation mask.
     
     Args:
-        image_path: The path to the image file.
+        image_path (str): The absolute path to the input image file (PNG or JPEG).
+        
     Returns:
-        The path to the saved JSON file containing segmentation results (masks, boxes, scores).
+        str: The absolute path to a JSON file containing the results.
+             The JSON structure is:
+             {
+               "image_path": str,
+               "objects": [str, ...],
+               "segmentations": {
+                 "object_name": {
+                   "boxes": [[x1, y1, x2, y2], ...],
+                   "scores": [float, ...],
+                   "mask_shape": [n, c, h, w],
+                   "masks_base64": [str, ...] # List of PNG masks encoded in base64
+                 }
+               }
+             }
     """
     if not utils.client:
         return "Error: GEMINI_API_KEY not configured."
@@ -23,12 +42,13 @@ def segmentation_tool_fn(image_path: str) -> str:
     
     print(f"Starting segmentation process for: {image_path}")
 
-    # 1. Identify objects with Gemini
-    prompt = 'Identify the main, distinct physical objects in this image that would be good candidates for instance segmentation. Return a raw JSON list of strings, for example: ["cat", "hat", "table"]. Do not include markdown formatting or explanation.'
+    # 1. Object Identification: Ask Gemini to find segmentable parts
+    # We use a specific prompt to get a clean JSON list of object names
+    id_prompt = 'Identify the main, distinct physical objects in this image that would be good candidates for instance segmentation. Return a raw JSON list of strings, for example: ["cat", "hat", "table"]. Do not include markdown formatting or explanation.'
     
     objects = []
     try:
-        # Determine mime type
+        # Detect mime type based on extension
         mime_type = "image/png"
         if image_path.lower().endswith(".jpg") or image_path.lower().endswith(".jpeg"):
             mime_type = "image/jpeg"
@@ -37,12 +57,11 @@ def segmentation_tool_fn(image_path: str) -> str:
             image_bytes = f.read()
             
         contents = [
-            prompt,
+            id_prompt,
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
         ]
         
-        # Use the standard model for identification, assuming it has vision capabilities
-        # config.py says MODEL_NAME = "gemini-2.5-flash", which is multimodal
+        # Call Gemini Vision to get the object list
         response = utils.client.models.generate_content(
             model=MODEL_NAME,
             contents=contents,
@@ -60,8 +79,7 @@ def segmentation_tool_fn(image_path: str) -> str:
     if not objects or not isinstance(objects, list):
          return "Error: Gemini failed to return a valid list of objects."
 
-    # 2. Call SAM3 for each object
-    api_url = SAM_API_URL
+    # 2. Instance Segmentation: Call SAM3 for each identified object
     combined_results = {
         "image_path": image_path,
         "objects": objects,
@@ -71,12 +89,12 @@ def segmentation_tool_fn(image_path: str) -> str:
     for obj in objects:
         print(f"Segmenting object: {obj}...")
         try:
-           # Re-open file for each request to ensure pointer is at start
+           # Send image and object name to the SAM3 endpoint
            with open(image_path, "rb") as f:
                files = {"file": f}
                data = {"prompt": obj} 
                
-               response = requests.post(api_url, files=files, data=data) 
+               response = requests.post(SAM_API_URL, files=files, data=data) 
                
                if response.status_code == 200:
                    result = response.json()
@@ -89,20 +107,21 @@ def segmentation_tool_fn(image_path: str) -> str:
             print(f"Error calling SAM3 for {obj}: {e}")
             combined_results["segmentations"][obj] = {"error": str(e)}
 
-    # 3. Save combined results
+    # 3. Finalization: Save results to a timestamped JSON file
     timestamp = int(time.time())
     output_filename = f"segmentation_results_{timestamp}.json"
     
-    # Save to global output dir if set
+    # Use the global output directory if available (managed by utils)
     if utils.GLOBAL_OUTPUT_DIR:
         saved_path = utils._save_to_run_folder(json.dumps(combined_results, indent=2), output_filename)
         print(f"Segmentation results saved to: {saved_path}")
         return saved_path
     else:
-        # Fallback: save to current directory
+        # Fallback to local directory if no global output is set
         try:
-            with open(output_filename, "w", encoding="utf-8") as f:
+            full_path = os.path.abspath(output_filename)
+            with open(full_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(combined_results, indent=2))
-            return os.path.abspath(output_filename)
-        except:
-            return json.dumps(combined_results, indent=2) # Return content as fallback
+            return full_path
+        except Exception as e:
+            return f"Error saving file: {str(e)}. Raw JSON: " + json.dumps(combined_results)

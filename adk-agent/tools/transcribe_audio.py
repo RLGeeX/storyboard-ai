@@ -86,9 +86,18 @@ def transcribe_audio_tool_fn(file_path: str, output_path: str = None) -> str:
         uploaded_file = utils.client.files.upload(file=file_path)
         print(f"Uploaded file: {uploaded_file.name} (URI: {uploaded_file.uri})")
         
-        # Wait for processing if it's a large file (video), though upload returns when ready usually for small files.
-        # For video/audio API usage, sometimes state checking is good, but usually 'upload' blocks until done or returns handle.
-        # The new genai SDK usually handles this.
+        # Wait for the file to be processed and become ACTIVE
+        print(f"Waiting for file {uploaded_file.name} to become ACTIVE...")
+        while True:
+            file_info = utils.client.files.get(name=uploaded_file.name)
+            if file_info.state.name == "ACTIVE":
+                print(f"File {uploaded_file.name} is now ACTIVE.")
+                break
+            elif file_info.state.name == "FAILED":
+                return f"Error: File processing failed in Gemini: {file_info.error}"
+            
+            print(f"Current state: {file_info.state.name}. Waiting 2 seconds...")
+            time.sleep(2)
         
         # Step 2: Request transcription with timestamps
         print("Step 2: Requesting transcription with timestamps...")
