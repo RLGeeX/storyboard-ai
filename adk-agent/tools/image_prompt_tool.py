@@ -3,8 +3,11 @@ from .utils import client, _save_to_run_folder
 
 def prompt_tool_fn(scene_description: str, visual_setup: str = "", global_plan: dict = None) -> str:
     """
-    Generates a specialized image prompt for a professional storyboard.
-    Adapts based on the Director's planning.
+    Generates an image prompt for a whiteboard animation frame.
+    
+    The style is: hand-drawn on a clean white background with marker/pen lines,
+    like a professional whiteboard animation. Key elements get selective color
+    while the rest stays black-and-white line art.
     
     Args:
         scene_description: Visual description of the scene.
@@ -14,33 +17,49 @@ def prompt_tool_fn(scene_description: str, visual_setup: str = "", global_plan: 
         The image generation prompt string.
     """
     tone = global_plan.get("tone", "dramatic") if global_plan else "dramatic"
-    visual_style = global_plan.get("visual_style", "Cinematic Storyboard") if global_plan else "Cinematic Storyboard"
+    visual_style = global_plan.get("visual_style", "Clean Whiteboard Animation") if global_plan else "Clean Whiteboard Animation"
     
-    realism_instr = ""
+    tone_guidance = ""
     if tone == "informative":
-        realism_instr = "Ensure the visual is accurate, informative, and realistic for a documentary. Avoid cinematic exaggeration. Use clear symbols or technical details where specified."
+        tone_guidance = "The visual should be clear, accurate, and educational. Use clean diagrams, simple icons, and readable layouts. Avoid dramatic exaggeration."
+    elif tone == "dramatic":
+        tone_guidance = "The visual should be expressive and cinematic. Use dynamic compositions, bold lines, and dramatic framing."
+    else:
+        tone_guidance = "The visual should be engaging and clear, suitable for the story being told."
 
     prompt = f"""
-    You are an expert storyboard artist and visual director.
+    You are an expert whiteboard animation artist.
     
-    Global Style: {visual_style}
-    Tone: {tone}
-    Scene Logic: {realism_instr}
+    Your job: Create an image prompt for a WHITEBOARD ANIMATION frame.
     
-    Input Description: "{scene_description}"
-    Scene Setup: "{visual_setup}"
+    WHAT WHITEBOARD ANIMATION LOOKS LIKE:
+    - Clean WHITE background (like a dry-erase whiteboard)
+    - Simple, quick LINE DRAWINGS using black marker/pen strokes
+    - Hand-drawn aesthetic — not photorealistic, not heavily detailed
+    - NO shading, NO gradients — flat simple strokes only
+    - Like someone is drawing with a marker on a whiteboard in real-time
+    - Think: explainer video, educational whiteboard, hand-drawn illustrations
     
-    Your Task: Convert this into a professional storyboard prompt.
+    COLOR ENHANCEMENT RULE:
+    - The drawing is primarily BLACK lines on WHITE background
+    - 1-2 KEY objects or focal areas should have VIBRANT selective color
+    - The color should draw attention to the most important element in the scene
+    - Everything else stays black-and-white line art
+    - Example: A scene about a boy could have the boy in color, everything else in black lines
     
-    Style Guidelines:
-    - Overall Style: {visual_style} sketch, charcoal/pencil texture, white background.
-    - Setup: Follow the 'Scene Setup' exactly (e.g., charts, realistic maps, specific historical framing).
-    - Color Logic: Primarily black and white. 1-2 critical focal points in vibrant selective color.
+    SCENE DETAILS:
+    - Description: "{scene_description}"
+    - Visual Setup: "{visual_setup}"
+    - Tone: {tone}
+    - {tone_guidance}
     
-    Construct the final prompt:
-    "Professional {visual_style} style, charcoal texture, detailed pencil sketch, white background, {scene_description}, {visual_setup}, focal points in vibrant selective color, grayscale surroundings, minimalist background, cinematic and accurate composition, no text"
+    CONSTRUCT the final image generation prompt following this template:
+    "Whiteboard animation frame, hand-drawn with black marker on clean white background, 
+    simple line drawing style, [scene content from description and visual_setup], 
+    [1-2 key elements] highlighted in vibrant selective color, rest in black-and-white line art, 
+    no shading, no gradients, educational explainer style, clear composition, no text"
     
-    Output: ONLY the final prompt string.
+    Output: ONLY the final prompt string. No explanations.
     """
     
     try:
@@ -56,3 +75,4 @@ def prompt_tool_fn(scene_description: str, visual_setup: str = "", global_plan: 
         return result
     except Exception as e:
         return f"Error prompt: {e}"
+

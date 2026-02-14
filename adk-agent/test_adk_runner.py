@@ -6,7 +6,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.models import Gemini
 from google.adk.tools import FunctionTool
 from config import MODEL_NAME, GEMINI_API_KEY
-from tools import research_tool_fn, divider_tool_fn, prompt_tool_fn, image_gen_tool_fn
+from tools import research_tool_fn, director_tool_fn, prompt_tool_fn, image_gen_tool_fn
 
 # Ensure GOOGLE_API_KEY is set for ADK
 if GEMINI_API_KEY:
@@ -14,7 +14,7 @@ if GEMINI_API_KEY:
 
 # Define Tools
 research_tool = FunctionTool(research_tool_fn)
-divider_tool = FunctionTool(divider_tool_fn)
+director_tool = FunctionTool(director_tool_fn)
 prompt_tool = FunctionTool(prompt_tool_fn)
 image_gen_tool = FunctionTool(image_gen_tool_fn)
 
@@ -28,14 +28,14 @@ async def test_agent_workflow():
     agent = Agent(
         name="storyboard_agent_test",
         model=model,
-        tools=[research_tool, divider_tool, prompt_tool, image_gen_tool],
+        tools=[research_tool, director_tool, prompt_tool, image_gen_tool],
         instruction="""
         You are an autonomous Storyboard Director Agent. 
         Your goal is to create a 2-scene storyboard and generate images for them.
         Use mock data or keep it very brief to save time.
         
         Workflow:
-        1. Call `divider_tool_fn` with a short story: "A cat finds a box. The cat enters the box."
+        1. Call `director_tool_fn` with a short story: "A cat finds a box. The cat enters the box."
         2. For EACH of the 2 scenes:
            - Call `prompt_tool_fn` for the description.
            - Call `image_gen_tool_fn` with the prompt.

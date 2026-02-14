@@ -1,5 +1,5 @@
 from .research import research_tool_fn
-from .divider import divider_tool_fn
+from .director import director_tool_fn
 from .image_prompt_tool import prompt_tool_fn
 from .image_gen import image_gen_tool_fn
 from .tts import generate_tts_audio_tool_fn

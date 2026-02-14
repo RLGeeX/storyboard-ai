@@ -14,7 +14,7 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
     Returns:
         The path to the generated image or an error message.
     """
-    base_aesthetic = "Professional high-end cinematic storyboard style, pencil and charcoal sketch on white paper, thick marker outlines for main subjects, high contrast. CRITICAL: Keep backgrounds minimalist and sketched. Focus detail and selective vibrant color on 1-2 main focal points. Avoid realistic or complex photographic backgrounds."
+    base_aesthetic = "Whiteboard animation frame style, hand-drawn with black marker on clean white background, simple line drawing, no shading, no gradients. Key focal elements in vibrant selective color, rest in black-and-white line art. Educational explainer style, clear composition, no text."
     full_prompt = f"{base_aesthetic} Subject: {prompt}"
     
     if not utils.client:
@@ -27,6 +27,8 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
             try:
                 with open(reference_image_path, "rb") as f:
                     image_bytes = f.read()
+                # Explicitly tell the model this is a REFERENCE, not a base to edit
+                contents.append("The following image is the PREVIOUS scene in this storyboard series. Use it ONLY as a style and aesthetic reference to maintain visual consistency (line weight, color palette, character style). Do NOT replicate or edit this image — generate a completely NEW scene based on the prompt above.")
                 contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
             except Exception as e:
                 print(f"Warning: Could not read reference image {reference_image_path}: {e}")

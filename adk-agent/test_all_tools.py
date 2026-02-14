@@ -6,7 +6,7 @@ import subprocess
 import json
 from tools import (
     research_tool_fn, 
-    divider_tool_fn, 
+    director_tool_fn, 
     prompt_tool_fn, 
     image_gen_tool_fn, 
     generate_tts_audio_tool_fn,
@@ -52,25 +52,27 @@ def test_image_gen(prompt=None):
         print(f"FAILED: {image_path}")
         return None
 
-def test_divider_and_prompt(research_output=None, run_image=False):
-    if research_output is None:
-        research_output = """
-        Chess is a game played between two opponents on opposite sides of a 64-square board containing 32 pieces. 
-        Each player starts with 16 pieces: eight pawns, two knights, two bishops, two rooks, one queen, and one king. 
-        The goal of the game is to checkmate the other king. 
-        Chess is believed to have originated in India during the Gupta empire, proving to be an early form of chess known as chaturaṅga.
-        """
+def test_director_and_prompt(user_instructions=None, run_image=False):
+    if user_instructions is None:
+        user_instructions = "Story of shepherd boy and wolf"
     
-    print("\n--- Testing Divider Tool ---")
-    scenes = divider_tool_fn(research_output)
+    print("\n--- Testing Director Tool ---")
+    video_plan = director_tool_fn(user_instructions)
+    global_plan = video_plan.get("global_plan", {})
+    scenes = video_plan.get("scenes", [])
     
     if scenes and isinstance(scenes, list) and len(scenes) > 0:
-        print(f"Generated {len(scenes)} scenes.")
+        print(f"Director planned {len(scenes)} scenes. Tone: {global_plan.get('tone')}")
+        print(f"Narrative Arc: {global_plan.get('narrative_arc', 'N/A')}")
         print("\n--- Testing Prompt Tool with the first scene ---")
         first_scene = scenes[0]
         description = first_scene.get('description', '')
+        narration = first_scene.get('narration', '')
+        visual_setup = first_scene.get('visual_setup', '')
+        print(f"Scene Summary: {first_scene.get('summary', '')}")
+        print(f"Narration: {narration[:200]}...")
         if description:
-            prompt = prompt_tool_fn(description)
+            prompt = prompt_tool_fn(description, visual_setup=visual_setup, global_plan=global_plan)
             print(f"Scene Description: {description}")
             print(f"Generated Prompt: {prompt}")
             
@@ -79,7 +81,7 @@ def test_divider_and_prompt(research_output=None, run_image=False):
         else:
             print("First scene logic error: no description found.")
     else:
-        print("Divider tool failed to generate scenes or output is not a list.")
+        print("Director tool failed to generate scenes.")
 
 def test_tts():
     print("\n--- Testing TTS Generation Tool ---")
@@ -327,8 +329,8 @@ def main():
     
     options = {
         "1": ("Research Tool", test_research),
-        "2": ("Divider Tool", lambda: test_divider_and_prompt(test_divider_and_prompt())), # Pass None correctly if needed or adjust signature
-        "3": ("Prompt Tool", lambda: test_divider_and_prompt(None, run_image=False)), # Standalone divider+prompt
+        "2": ("Director Tool", lambda: test_director_and_prompt()),
+        "3": ("Prompt Tool", lambda: test_director_and_prompt(None, run_image=False)), # Director+prompt
         "4": ("Image Gen Tool", test_image_gen),
         "5": ("TTS Tool", test_tts),
         "6": ("Segmentation Tool", test_segmentation),
@@ -360,12 +362,8 @@ def main():
         print("No valid tests selected.")
         return
 
-    # Special handling for Research -> Divider flow if both selected?
-    # For now, keep them independent or allow the user to chain manually via the code logic if complex.
-    # But sticking to the simple logic: run what's selected.
-    
-    # Note: Option 2 (Divider) effectively tests prompt too in previous code. 
-    # Let's refine the lambda mapping to be safer.
+    # Special handling for Research -> Director flow if both selected?
+    # For now, keep them independent or allow the user to chain manually.
     
     for key in selected_keys:
         name, func = options[key]
@@ -373,11 +371,10 @@ def main():
         try:
             # Adjust arguments based on simple logic
             if key == "2":
-                # Test logic: mock input
-                test_divider_and_prompt()
+                test_director_and_prompt()
             elif key == "3":
-                 # Divider + Prompt logic
-                 test_divider_and_prompt()
+                 # Director + Prompt logic
+                 test_director_and_prompt()
             else:
                 func()
         except Exception as e:
