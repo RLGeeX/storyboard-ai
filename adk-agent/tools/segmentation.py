@@ -44,7 +44,7 @@ def segmentation_tool_fn(image_path: str) -> str:
 
     # 1. Object Identification: Ask Gemini to find segmentable parts
     # We use a specific prompt to get a clean JSON list of object names
-    id_prompt = 'Identify the main, distinct physical objects in this image that would be good candidates for instance segmentation. Return a raw JSON list of strings, for example: ["cat", "hat", "table"]. Do not include markdown formatting or explanation.'
+    id_prompt = 'Identify the 3-5 largest and most distinct physical object groups in this image that define the scene. Group smaller related parts into large logical entities (e.g., instead of "wheel", "pedal", "seat", just say "bicycle"). Return a raw JSON list of strings, for example: ["bicycle", "rider", "background building"]. Do not include markdown formatting or explanation.'
     
     objects = []
     try:

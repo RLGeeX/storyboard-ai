@@ -4,38 +4,54 @@ from typing import List, Dict, Any
 from config import MODEL_NAME
 from .utils import client, _save_to_run_folder
 
-def divider_tool_fn(research_output: str) -> List[Dict[str, Any]]:
+def divider_tool_fn(research_output: str) -> Dict[str, Any]:
     """
-    Divides research into storyboard scenes.
+    Acts as a Director to plan the video and divide research into scenes.
     
     Args:
         research_output: The detailed research report text.
     Returns:
-        A list of scene dictionaries.
+        A dictionary with 'global_plan' and 'scenes'.
     """
     prompt = f"""
-    You are a professional storyboard director. 
-    Analyze the following research and break it down into a sequence of scenes for a whiteboard animation video.
+    You are a professional Video Director and Creative Planner. 
+    Analyze the following research and plan a high-quality whiteboard animation video.
     
     Research Material:
     ---
     {research_output}
     ---
     
-    Goal: Create a highly engaging, visual narrative.
+    Your Task:
+    1. Determine the appropriate TONE and STYLE for this video based on the topic. 
+       - If it's informative/financial (like NPS/PF), use a "Documentary/Informative" style (authoritative, clear, professional).
+       - If it's a historical/action story (like Shivaji Maharaj), use a "Dramatic/Narrative" style (engaging, cinematic, tense).
+       - Avoid making dry informative topics "mysterious" or "thriller-like".
+    2. Create a 'global_plan' that defines the Narrative Persona and Visual Aesthetic.
+    3. Break the content into 10-15+ scenes.
     
-    Requirements:
-    1. Break down the content into granular scenes (aim for 1 scene per concept/sentence).
-    2. For each scene, write:
-       - 'narration': The script to be spoken.
-       - 'description': A SIMPLE visual description for a whiteboard drawing.
+    Requirements for each scene:
+    - 'narration': The spoken script (aligned with the global tone).
+    - 'description': A visual description for the image generator.
+    - 'visual_setup': Specific instructions for this frame (e.g., "Use a 3D bar chart for comparison", "Draw a realistic map of India", "Keep it simple and schematic").
     
-    The 'description' MUST be:
-    - Visual and concrete (e.g., "A specific drawing of X doing Y").
-    - Suitable for a simple black-and-white line drawing.
-    - Avoid abstract concepts like "complexity" without describing HOW to draw it.
-    
-    Output Format: JSON list of objects.
+    Output Format (Strict JSON):
+    {{
+      "global_plan": {{
+        "tone": "informative" | "dramatic",
+        "narrative_persona": "Professional Documentary Narrator" | "Epic Storyteller" | etc.,
+        "visual_style": "Clean Technical Storyboard" | "Cinematic Historical Sketch" | etc.,
+        "pacing": "steady/educational" | "fast/action" | etc.
+      }},
+      "scenes": [
+        {{
+          "narration": "...",
+          "description": "...",
+          "visual_setup": "..."
+        }},
+        ...
+      ]
+    }}
     """
     
     try:
@@ -47,14 +63,17 @@ def divider_tool_fn(research_output: str) -> List[Dict[str, Any]]:
             }
         )
         result = json.loads(response.text)
-        _save_to_run_folder(json.dumps(result, indent=2), "scenes.json")
+        _save_to_run_folder(json.dumps(result, indent=2), "video_plan.json")
         return result
     except Exception as e:
-        print(f"Error in divider_tool: {e}")
-        try:
-             json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
-             if json_match:
-                 return json.loads(json_match.group(0))
-        except:
-            pass
-        return [{"description": "Error parsing", "narration": "Error parsing"}]
+        print(f"Error in director_tool: {e}")
+        # Fallback to a basic structure if parsing fails
+        return {
+            "global_plan": {
+                "tone": "informative", 
+                "narrative_persona": "Professional Documentary Narrator", 
+                "visual_style": "Clean Technical Storyboard", 
+                "pacing": "steady"
+            },
+            "scenes": [{"description": "Error parsing", "narration": "Error parsing", "visual_setup": "Simple sketch"}]
+        }

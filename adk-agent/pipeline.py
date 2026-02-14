@@ -11,8 +11,10 @@ from tools import (
     concatenate_videos_tool_fn,
     burn_subtitles_to_video_tool_fn,
     transcribe_audio_tool_fn,
+    refine_narration_tool_fn,
     draw_animation_tool_fn,
-    set_output_dir
+    set_output_dir,
+    get_video_duration
 )
 
 def run_pipeline(user_context: str, do_research: bool = True):
@@ -35,10 +37,12 @@ def run_pipeline(user_context: str, do_research: bool = True):
     else:
         print("\nStep 1: Skipping Research as per request. Using provided context directly.")
 
-    # 2. Divide into scenes
-    print("\nStep 2: Dividing research/context into scenes...")
-    scenes = divider_tool_fn(research_report)
-    print(f"Generated {len(scenes)} scenes.")
+    # Step 2: Director Planning & Scene Division
+    print("\nStep 2: Director Planning & Scene Division...")
+    video_plan = divider_tool_fn(research_report)
+    global_plan = video_plan.get("global_plan", {})
+    scenes = video_plan.get("scenes", [])
+    print(f"Generated {len(scenes)} scenes. Tone: {global_plan.get('tone')}")
 
     final_videos = []
     prev_image_path = None
@@ -49,13 +53,13 @@ def run_pipeline(user_context: str, do_research: bool = True):
         print(f"\n--- Processing Scene {i+1}/{len(scenes)} ---")
         description = scene.get('description', 'No description')
         narration = scene.get('narration', 'No narration')
+        visual_setup = scene.get('visual_setup', '')
         
         # 3a. Generate Image Prompt
         print(f"Scene {i+1}: Generating image prompt...")
-        img_prompt = prompt_tool_fn(description)
+        img_prompt = prompt_tool_fn(description, visual_setup=visual_setup, global_plan=global_plan)
         
         # 3b. Generate Image
-        # Pass the previous image as context for consistency if it exists
         print(f"Scene {i+1}: Generating image...")
         image_path = image_gen_tool_fn(img_prompt, reference_image_path=prev_image_path)
         
@@ -63,8 +67,8 @@ def run_pipeline(user_context: str, do_research: bool = True):
             print(f"Error generating image for scene {i+1}: {image_path}")
             continue
             
-        prev_image_path = image_path # Update for next scene
-        
+        prev_image_path = image_path 
+
         # 3c. SAM Segmentation
         print(f"Scene {i+1}: Segmenting image objects...")
         seg_json_path = segmentation_tool_fn(image_path)
@@ -73,7 +77,12 @@ def run_pipeline(user_context: str, do_research: bool = True):
         print(f"Scene {i+1}: Generating whiteboard animation...")
         anim_video_path = draw_animation_tool_fn(image_path, segmentation_results_path=seg_json_path)
         
-        # 3e. TTS Generation
+        # 3e. Narration Refinement
+        v_duration = get_video_duration(anim_video_path)
+        print(f"Scene {i+1}: Refining narration (Duration: {v_duration:.1f}s)...")
+        narration = refine_narration_tool_fn(narration, image_path, video_duration=v_duration, global_plan=global_plan)
+        
+        # 3f. TTS Generation
         print(f"Scene {i+1}: Generating narration audio...")
         audio_path = generate_tts_audio_tool_fn(narration)
         

@@ -45,3 +45,21 @@ def save_pcm_to_wav(filename: str, pcm: bytes, channels: int = 1, rate: int = 24
     except Exception as e:
         print(f"Error saving wave file: {e}")
         return False
+
+def get_video_duration(video_path: str) -> float:
+    """
+    Returns the duration of a video file in seconds.
+    """
+    import cv2
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return 0.0
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duration = frame_count / fps if fps > 0 else 0.0
+        cap.release()
+        return duration
+    except Exception as e:
+        print(f"Error getting video duration: {e}")
+        return 0.0

@@ -14,7 +14,7 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
     Returns:
         The path to the generated image or an error message.
     """
-    base_aesthetic = "Professional whiteboard animation style, black line drawing, thick black marker, white background, clean lines, high contrast. The drawing should be clear and can include relevant text or labels as requested."
+    base_aesthetic = "Professional high-end cinematic storyboard style, pencil and charcoal sketch on white paper, thick marker outlines for main subjects, high contrast. CRITICAL: Keep backgrounds minimalist and sketched. Focus detail and selective vibrant color on 1-2 main focal points. Avoid realistic or complex photographic backgrounds."
     full_prompt = f"{base_aesthetic} Subject: {prompt}"
     
     if not utils.client:

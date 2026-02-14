@@ -11,7 +11,8 @@ MODEL_NAME = "gemini-2.5-flash"
 # Deep Research Model
 DEEP_RESEARCH_MODEL = "deep-research-pro-preview-12-2025"
 # Image Generation Model
-IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
+# IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
+IMAGE_GEN_MODEL = "gemini-3-pro-image-preview"
 # TTS Model
 TTS_MODEL = "gemini-2.5-flash-preview-tts"
 # SAM Segmentation Model URL

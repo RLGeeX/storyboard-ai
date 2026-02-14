@@ -248,10 +248,11 @@ def draw_animation_tool_fn(
         # We track which pixels belong to the background
         background_mask = np.full((resize_ht, resize_wd), 255, dtype=np.uint8)
         
+        # 1. Reconstruct all masks first
+        reconstructed_masks = []
         for obj_name, obj_seg in seg_data.get("segmentations", {}).items():
             if "masks_base64" not in obj_seg: continue
             
-            # Reconstruct the object mask from base64 strings (PNG format)
             full_obj_mask = np.zeros((resize_ht, resize_wd), dtype=np.uint8)
             for b64_mask in obj_seg["masks_base64"]:
                 mask_data = base64.b64decode(b64_mask)
@@ -262,14 +263,60 @@ def draw_animation_tool_fn(
                     _, binary_part = cv2.threshold(mask_part, 127, 255, cv2.THRESH_BINARY)
                     full_obj_mask = cv2.bitwise_or(full_obj_mask, binary_part)
             
-            # Animate drawing this specific object
+            reconstructed_masks.append(full_obj_mask)
+
+        # 2. Merge overlapping masks
+        # We use a simple adjacency-based merging (Disjoint Set Union style)
+        num_masks = len(reconstructed_masks)
+        parent = list(range(num_masks))
+
+        def find(i):
+            if parent[i] == i: return i
+            parent[i] = find(parent[i])
+            return parent[i]
+
+        def union(i, j):
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_i] = root_j
+
+        for i in range(num_masks):
+            for j in range(i + 1, num_masks):
+                m1 = reconstructed_masks[i]
+                m2 = reconstructed_masks[j]
+                
+                # Calculate intersection
+                intersect = cv2.bitwise_and(m1, m2)
+                intersect_area = np.sum(intersect == 255)
+                
+                if intersect_area > 0:
+                    area1 = np.sum(m1 == 255)
+                    area2 = np.sum(m2 == 255)
+                    min_area = min(area1, area2)
+                    
+                    # If significant overlap, merge them
+                    if min_area > 0 and (intersect_area / min_area) > 0.3:
+                        union(i, j)
+
+        # Group masks by their root parent
+        merged_groups = {}
+        for i in range(num_masks):
+            root = find(i)
+            if root not in merged_groups:
+                merged_groups[root] = np.zeros((resize_ht, resize_wd), dtype=np.uint8)
+            merged_groups[root] = cv2.bitwise_or(merged_groups[root], reconstructed_masks[i])
+
+        # 3. Animate the merged groups
+        for root, merged_mask in merged_groups.items():
+            # Animate drawing this specific merged object
             draw_masked_object(
                 drawn_frame, img_thresh, img, video_object, hand, hand_mask_inv, hand_ht, hand_wd,
-                resize_ht, resize_wd, split_len, object_mask=full_obj_mask, skip_rate=object_skip_rate
+                resize_ht, resize_wd, split_len, object_mask=merged_mask, skip_rate=object_skip_rate
             )
             
             # Mark this object's area as 'drawn' in the background mask
-            obj_ind = np.where(full_obj_mask == 255)
+            obj_ind = np.where(merged_mask == 255)
             background_mask[obj_ind] = 0
             
         # Draw the remaining area (background)
