@@ -12,10 +12,11 @@ It operates autonomously using an agentic approach, meaning the Director Agent b
 
 Here is an example of what Storyboard AI can generate:
 
-<video src="storyboard_final_video.mp4" controls width="100%">
-  Your browser does not support the video tag.
-  <a href="storyboard_final_video.mp4">Download Video</a>
-</video>
+
+
+
+https://github.com/user-attachments/assets/0ecebc9c-d983-4d8d-b832-54a3ba53ffb6
+
 
 ---
 
