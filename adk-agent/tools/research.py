@@ -1,5 +1,5 @@
 import time
-from config import DEEP_RESEARCH_MODEL
+from config import DEEP_RESEARCH_MODEL, MODEL_NAME
 from .utils import client, _save_to_run_folder
 
 def research_tool_fn(context: str) -> str:
@@ -40,3 +40,37 @@ def research_tool_fn(context: str) -> str:
 
     except Exception as e:
         return f"An error occurred during research: {str(e)}"
+
+def web_grounded_research_tool_fn(context: str) -> str:
+    """
+    Performs fast, web-grounded research using standard Gemini model with Google Search Tool enabled.
+    
+    Args:
+        context: The topic to research.
+    Returns:
+        A concise, factual summary.
+    """
+    print(f"Starting Web-Grounded Research for: {context}")
+    
+    if not client:
+        return "Error: GEMINI_API_KEY not configured."
+
+    try:
+        from google.genai import types
+        
+        prompt = f"Perform a comprehensive web search to provide a detailed, factual summary about: {context}. Include key dates, milestones, and important contextual facts. This will be used as a source for a documentary/storyboard script."
+        
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[{"google_search": {}}],
+            )
+        )
+        
+        report = response.text.strip()
+        _save_to_run_folder(report, "web_research_report.md")
+        return report
+
+    except Exception as e:
+        return f"An error occurred during web-grounded research: {str(e)}"

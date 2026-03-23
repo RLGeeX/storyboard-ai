@@ -182,8 +182,8 @@ def draw_animation_tool_fn(
     image_path: str,
     segmentation_results_path: str = None,
     frame_rate: int = 25,
-    resize_wd: int = 1024,
-    resize_ht: int = 1024,
+    resize_wd: int = 1920,
+    resize_ht: int = 1080,
     split_len: int = 10,
     object_skip_rate: int = 10,
     bg_object_skip_rate: int = 14,
@@ -200,8 +200,8 @@ def draw_animation_tool_fn(
         image_path (str): Absolute path to the input image.
         segmentation_results_path (str, optional): Path to the JSON output of the segmentation tool.
         frame_rate (int): FPS of the output video. Default 25.
-        resize_wd (int): Resize image to this width before processing. Default 1024.
-        resize_ht (int): Resize image to this height before processing. Default 1024.
+        resize_wd (int): Resize image to this width before processing. Default 1920.
+        resize_ht (int): Resize image to this height before processing. Default 1080.
         split_len (int): Grid size for ink detection. Smaller is more detailed but slower. Default 10.
         object_skip_rate (int): Write 1 frame for every N grid blocks drawn for objects. Default 8.
         bg_object_skip_rate (int): Skip rate for background drawing (usually faster). Default 14.

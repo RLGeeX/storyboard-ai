@@ -5,15 +5,19 @@ import os
 
 def refine_narration_tool_fn(original_narration: str, image_path: str, video_duration: float = None, global_plan: dict = None) -> str:
     """
-    Refines a narration script based on visual contents and the Director's plan.
+    Enhances the Director's narration script — preserving ALL information.
+    
+    The Director's narration is the PRIMARY source of truth. This tool only
+    refines it for pacing and flow. It does NOT replace content with image
+    descriptions.
     
     Args:
-        original_narration: The baseline narration text.
-        image_path: Path to the image.
-        video_duration: Duration in seconds.
-        global_plan: The global plan dictionary (from the Director).
+        original_narration: The Director's narration script (PRIMARY CONTENT).
+        image_path: Path to the generated image (for visual context ONLY).
+        video_duration: Duration of the animation in seconds (for pacing).
+        global_plan: The Director's global plan (for tone/persona consistency).
     Returns:
-        A refined narration string.
+        An enhanced narration string with ALL original information preserved.
     """
     if not client:
         return original_narration
@@ -22,27 +26,71 @@ def refine_narration_tool_fn(original_narration: str, image_path: str, video_dur
         print(f"Warning: Image not found for narration refinement at {image_path}. Using original.")
         return original_narration
 
-    duration_context = ""
+    # Calculate target word count based on video duration
+    # Average speaking pace: ~140 words per minute (natural, unhurried)
+    duration_guidance = ""
     if video_duration:
-        duration_context = f"The visual animation for this scene is {video_duration:.1f} seconds long. Your narration should be descriptively rich and slightly longer than this duration to allow for complete, cinematic storytelling (aim for a natural speaking pace)."
+        target_words = int((video_duration / 60) * 140)
+        # Allow narration to be slightly longer than video (audio can extend the final frame)
+        max_words = int(target_words * 1.3)
+        duration_guidance = f"""
+    PACING CONSTRAINT:
+    - The animation is {video_duration:.1f} seconds long.
+    - At natural speaking pace (~140 words/min), aim for approximately {target_words}-{max_words} words.
+    - If the Director's narration is already close to this length, make minimal changes.
+    - If it's too short, EXPAND with more vivid storytelling detail (not new information).
+    - If it's too long, TIGHTEN the language (but keep ALL facts/information).
+    """
 
     persona = global_plan.get("narrative_persona", "Professional Storyteller") if global_plan else "Professional Storyteller"
     tone = global_plan.get("tone", "dramatic") if global_plan else "dramatic"
+    narrative_arc = global_plan.get("narrative_arc", "") if global_plan else ""
+
+    arc_context = ""
+    if narrative_arc:
+        arc_context = f"\n    Overall Story Arc: {narrative_arc}"
 
     prompt = f"""
-    You are a {persona}. 
-    Your voice brings still images to life with the perfect pace and {tone} tone.
+    You are a Narration Enhancer working under the direction of a {persona}.
     
-    Original Narration: "{original_narration}"
-    Visual Context: Look at the image. {duration_context}
+    DIRECTOR'S ORIGINAL NARRATION (THIS IS YOUR PRIMARY INPUT — PRESERVE IT):
+    "{original_narration}"
     
-    Your Task: Rewrite the narration to be specific to the visual details while following the {tone} tone.
+    Tone: {tone}
+    {arc_context}
+    {duration_guidance}
     
-    Requirements:
-    1. Persona Alignment: Strictly follow the persona of a {persona}.
-    2. Visual Specificity: Mention colors, textures, or key objects seen in the image.
-    3. Pacing: Length should allow for a natural speaking pace for {video_duration or 5} seconds.
-    4. Cues: Add [dramatic pause], [softly], etc. only where appropriate for the {tone} style. 
+    An image of the whiteboard animation frame is attached for visual context.
+    
+    YOUR TASK: Enhance the Director's narration for spoken delivery.
+    
+    ABSOLUTE RULES — VIOLATION IS FAILURE:
+    1. PRESERVE ALL INFORMATION: Every fact, name, number, and detail from the Director's 
+       narration MUST appear in your output. You are ENHANCING, not replacing.
+    2. DO NOT DESCRIBE THE IMAGE: You must NEVER say things like "we see a drawing of..." 
+       or "the whiteboard shows..." or "lines and shapes depict...". The narration is for 
+       the AUDIENCE watching the video, not someone looking at a whiteboard.
+    3. TELL THE STORY: The narration should sound like a compelling story being told to 
+       an audience. Use the {tone} tone throughout.
+    4. KEEP THE VOICE: Maintain the {persona} voice consistently.
+    5. FLOW NATURALLY: The narration should sound natural when spoken aloud. Add brief 
+       pacing cues like [pause] or [softly] ONLY where they genuinely improve delivery.
+    
+    WHAT YOU MAY DO:
+    - Improve word choice for more vivid, engaging storytelling
+    - Adjust sentence rhythm for better spoken delivery
+    - Add transitional phrases for smoother flow
+    - Expand briefly if the narration needs to be longer for the video duration
+    - Add emotional coloring that matches the scene's mood
+    
+    WHAT YOU MUST NEVER DO:
+    - Remove or replace factual content from the Director's narration
+    - Add information that wasn't in the original narration
+    - Describe what's drawn in the whiteboard image
+    - Add meta-commentary about the video or animation
+    - Change the core message or meaning
+    
+    Output: Return ONLY the enhanced narration text. No explanations, no labels, no quotes.
     """
 
     try:
@@ -62,6 +110,10 @@ def refine_narration_tool_fn(original_narration: str, image_path: str, video_dur
         )
         
         result = response.text.strip()
+        # Clean any wrapping quotes the model might add
+        if result.startswith('"') and result.endswith('"'):
+            result = result[1:-1]
+        
         _save_to_run_folder(f"Original: {original_narration}\nRefined: {result}\n---\n", "narration_refinement_log.txt", mode="a")
         return result
         

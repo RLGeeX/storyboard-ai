@@ -1,4 +1,4 @@
-from tools import research_tool, divider_tool, prompt_tool
+from tools import research_tool, director_tool_fn as director_tool, prompt_tool
 
 def run_storyboard_agent(user_context: str):
     print(f"--- Starting Storyboard Agent for context: {user_context} ---")
@@ -8,9 +8,9 @@ def run_storyboard_agent(user_context: str):
     research_report = research_tool(user_context)
     print("Research completed.")
     
-    # Step 2: Divide into scenes
-    print("Step 2: Dividing research into scenes...")
-    scenes_raw = divider_tool(research_report)
+    # Step 2: Director plans the video
+    print("Step 2: Director planning scenes & narration...")
+    scenes_raw = director_tool(user_context)
     print("Scenes generated.")
     
     # Step 3: Generate prompts for each scene

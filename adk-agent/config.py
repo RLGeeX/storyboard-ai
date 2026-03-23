@@ -7,7 +7,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Models
 # User referred to "flash3", likely meaning the latest Gemini 2.0 Flash
-MODEL_NAME = "gemini-2.5-flash" 
+MODEL_NAME = "gemini-2.5-pro" 
 # Deep Research Model
 DEEP_RESEARCH_MODEL = "deep-research-pro-preview-12-2025"
 # Image Generation Model
