@@ -56,7 +56,7 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
 
 # --- Main Pipeline ---
 
-def run_pipeline(user_context: str, do_research: bool = True, do_web_search: bool = False):
+def run_pipeline(user_context: str, do_research: bool = True, do_web_search: bool = False, use_internet_image_search: bool = True):
     print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
     
     # 0. Setup Output Directory
@@ -114,7 +114,7 @@ def run_pipeline(user_context: str, do_research: bool = True, do_web_search: boo
                 
             # --- 3.a.0 Reference Search ---
             subject_image_path = None
-            if search_query:
+            if use_internet_image_search and search_query:
                 print(f"Scene {scene_num}: Searching internet for reference image: '{search_query}'...")
                 res = reference_search_tool_fn(search_query)
                 if _is_valid_path(res):
@@ -122,6 +122,8 @@ def run_pipeline(user_context: str, do_research: bool = True, do_web_search: boo
                     print(f"  ✓ Reference image downloaded to: {subject_image_path}")
                 else:
                     print(f"  ⚠ Reference search failed or returned no valid image: {res}")
+            elif not use_internet_image_search and search_query:
+                print(f"Scene {scene_num}: Internet image search disabled. Skipping reference for '{search_query}'.")
             
             # --- 3a. Generate Image Prompt (with retry) ---
             print(f"Scene {scene_num}: Generating image prompt...")
@@ -275,6 +277,9 @@ if __name__ == "__main__":
     else:
         do_web_search = True
         
-    run_pipeline(context, do_research=do_research, do_web_search=do_web_search)
+    image_search_choice = input("Enable internet image search for references? [Y/n] (default Y): ").strip().lower()
+    use_internet_image_search = False if image_search_choice in ['n', 'no'] else True
+        
+    run_pipeline(context, do_research=do_research, do_web_search=do_web_search, use_internet_image_search=use_internet_image_search)
 
 
