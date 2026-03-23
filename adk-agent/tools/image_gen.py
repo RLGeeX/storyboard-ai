@@ -4,34 +4,48 @@ from google.genai import types
 from config import IMAGE_GEN_MODEL
 from . import utils
 
-def image_gen_tool_fn(prompt: str, reference_image_path: str = None) -> str:
+def image_gen_tool_fn(prompt: str, reference_image_path: str = None, subject_reference_image_path: str = None) -> str:
     """
     Generates a whiteboard animation image using Gemini 2.5 Flash Image.
     
     Args:
         prompt: The specific text prompt to generate an image for.
         reference_image_path: Optional path to a previously generated image for aesthetic consistency.
+        subject_reference_image_path: Optional path to a real-world photo of the subject.
     Returns:
         The path to the generated image or an error message.
     """
-    base_aesthetic = "Whiteboard animation frame style, hand-drawn with black marker on clean white background, simple line drawing, no shading, no gradients. Key focal elements in vibrant selective color, rest in black-and-white line art. Educational explainer style, clear composition, no text."
-    full_prompt = f"{base_aesthetic} Subject: {prompt}"
     
     if not utils.client:
         return "Error: GEMINI_API_KEY not configured."
 
     try:
-        contents = [full_prompt]
+        # Explicitly ask for 16:9 just in case the backend config gets ignored
+        contents = [prompt + " Ensure the generated image is in 16:9 aspect ratio (1920x1080). CRITICAL: DO NOT draw any hands, human arms, markers, pens, or people drawing. Draw ONLY the pure artwork on the whiteboard."]
         
+        # Style consistency reference
         if reference_image_path and os.path.exists(reference_image_path):
             try:
                 with open(reference_image_path, "rb") as f:
                     image_bytes = f.read()
                 # Explicitly tell the model this is a REFERENCE, not a base to edit
-                contents.append("The following image is the PREVIOUS scene in this storyboard series. Use it ONLY as a style and aesthetic reference to maintain visual consistency (line weight, color palette, character style). Do NOT replicate or edit this image — generate a completely NEW scene based on the prompt above.")
+                contents.append("The following image is the PREVIOUS scene in this storyboard series. Use it ONLY as a style and aesthetic reference to maintain visual consistency (line weight, color palette, character style). Do NOT replicate or edit this image — generate a completely NEW scene based on the prompt.")
                 contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
             except Exception as e:
                 print(f"Warning: Could not read reference image {reference_image_path}: {e}")
+
+        # Real-world subject reference (Internet image)
+        if subject_reference_image_path and os.path.exists(subject_reference_image_path):
+            try:
+                with open(subject_reference_image_path, "rb") as f:
+                    subject_bytes = f.read()
+                mime_type = "image/png"
+                if subject_reference_image_path.lower().endswith(('.jpg', '.jpeg')):
+                    mime_type = "image/jpeg"
+                contents.append("Using the attached photograph as the SUBJECT STRUCTURE reference, transform this real-world subject into our specific whiteboard animation style, keeping facial features and main structural elements recognizable.")
+                contents.append(types.Part.from_bytes(data=subject_bytes, mime_type=mime_type))
+            except Exception as e:
+                print(f"Warning: Could not read subject reference image {subject_reference_image_path}: {e}")
 
         # Use the configured image generation model
         response = utils.client.models.generate_content(

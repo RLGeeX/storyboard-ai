@@ -1,8 +1,10 @@
 import os
 import time
 import datetime
+import datetime
 from tools import (
-    research_tool_fn, 
+    research_tool_fn,
+    web_grounded_research_tool_fn,
     director_tool_fn, 
     prompt_tool_fn, 
     image_gen_tool_fn, 
@@ -15,7 +17,8 @@ from tools import (
     refine_narration_tool_fn,
     draw_animation_tool_fn,
     set_output_dir,
-    get_video_duration
+    get_video_duration,
+    reference_search_tool_fn
 )
 
 # --- Helper functions for robustness ---
@@ -53,7 +56,7 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
 
 # --- Main Pipeline ---
 
-def run_pipeline(user_context: str, do_research: bool = True):
+def run_pipeline(user_context: str, do_research: bool = True, do_web_search: bool = False):
     print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
     
     # 0. Setup Output Directory
@@ -70,6 +73,10 @@ def run_pipeline(user_context: str, do_research: bool = True):
         print("\nStep 1: Performing Deep Research...")
         research_report = research_tool_fn(user_context)
         print("Research completed.")
+    elif do_web_search:
+        print("\nStep 1: Performing Web-Grounded Research (Fast)...")
+        research_report = web_grounded_research_tool_fn(user_context)
+        print("Web-Grounded Research completed.")
     else:
         print("\nStep 1: Skipping Research as per request. Using provided context directly.")
 
@@ -97,17 +104,30 @@ def run_pipeline(user_context: str, do_research: bool = True):
             visual_setup = scene.get('visual_setup', '')
             summary = scene.get('summary', '')
             emotional_beat = scene.get('emotional_beat', '')
+            search_query = scene.get('search_query', '')
+            text_overlay = scene.get('text_overlay', '')
             
             if summary:
                 print(f"  Summary: {summary}")
             if emotional_beat:
                 print(f"  Emotional Beat: {emotional_beat}")
+                
+            # --- 3.a.0 Reference Search ---
+            subject_image_path = None
+            if search_query:
+                print(f"Scene {scene_num}: Searching internet for reference image: '{search_query}'...")
+                res = reference_search_tool_fn(search_query)
+                if _is_valid_path(res):
+                    subject_image_path = res
+                    print(f"  ✓ Reference image downloaded to: {subject_image_path}")
+                else:
+                    print(f"  ⚠ Reference search failed or returned no valid image: {res}")
             
             # --- 3a. Generate Image Prompt (with retry) ---
             print(f"Scene {scene_num}: Generating image prompt...")
             img_prompt = _retry(
                 prompt_tool_fn, description, 
-                visual_setup=visual_setup, global_plan=global_plan,
+                visual_setup=visual_setup, text_overlay=text_overlay, global_plan=global_plan,
                 label=f"Scene {scene_num} image prompt", max_retries=2
             )
             if not img_prompt:
@@ -120,6 +140,7 @@ def run_pipeline(user_context: str, do_research: bool = True):
             image_path = _retry(
                 image_gen_tool_fn, img_prompt,
                 reference_image_path=prev_image_path,
+                subject_reference_image_path=subject_image_path,
                 label=f"Scene {scene_num} image gen", max_retries=3, delay=8.0
             )
             
@@ -242,7 +263,18 @@ def run_pipeline(user_context: str, do_research: bool = True):
 
 if __name__ == "__main__":
     context = input("Enter the context for your video: ")
-    research_choice = input("Run Deep Research? (y/n): ").lower() == 'y'
-    run_pipeline(context, do_research=research_choice)
+    res_choice = input("Select research mode: [1] Deep Research, [2] Web Search (Fast), [3] None (default 2): ").strip()
+    
+    do_research = False
+    do_web_search = False
+    
+    if res_choice == '1':
+        do_research = True
+    elif res_choice == '3':
+        pass
+    else:
+        do_web_search = True
+        
+    run_pipeline(context, do_research=do_research, do_web_search=do_web_search)
 
 

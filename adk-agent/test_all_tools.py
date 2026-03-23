@@ -16,7 +16,8 @@ from tools import (
     add_subtitle_tool_fn,
     burn_subtitles_to_video_tool_fn,
     transcribe_audio_tool_fn,
-    set_output_dir
+    set_output_dir,
+    reference_search_tool_fn
 )
 
 GLOBAL_TEST_DIR = ""
@@ -311,6 +312,19 @@ def test_video_subtitle():
     else:
         print(f"FAILED: {result}")
 
+def test_reference_search():
+    print("\n--- Testing Reference Search Tool ---")
+    query = "5th president of France"
+    print(f"Searching for: {query}")
+    
+    result = reference_search_tool_fn(query)
+    if result and "Error" not in result and os.path.exists(result):
+        print(f"SUCCESS: Reference image downloaded to {result}")
+        return result
+    else:
+        print(f"FAILED: {result}")
+        return None
+
 def main():
     global GLOBAL_TEST_DIR
     
@@ -338,7 +352,8 @@ def main():
         "8": ("Concatenate Videos Tool", test_concatenate_av),
         "9": ("Subtitle Tool (Image)", test_subtitle),
         "10": ("Transcribe Audio Tool", test_transcribe_audio),
-        "11": ("Video Subtitle Tool (Burn-in)", test_video_subtitle)
+        "11": ("Video Subtitle Tool (Burn-in)", test_video_subtitle),
+        "12": ("Reference Search Tool", test_reference_search)
     }
     
     print("\nAvailable Tests:")

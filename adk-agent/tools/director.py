@@ -42,10 +42,10 @@ def director_tool_fn(user_instructions: str, research_material: str = None) -> D
     YOUR TASK — Plan the complete video:
     
     STEP 1: Analyze the topic and decide:
-    - What TONE fits? (informative/documentary for factual topics, dramatic/narrative for stories)
+    - What TONE fits? (informative, dramatic, playful, sad, etc.)
     - What is the NARRATIVE ARC? (beginning hook → build-up → climax → resolution)
     - Who is narrating? (a professional explainer, a storyteller, a historian, etc.)
-    - How many scenes are needed? (use as many as the story NEEDS — could be 5 for a short fable, 15+ for a detailed documentary)
+    - How many scenes are needed? (CRITICAL: Adjust this based on user instructions. For a "quick" or "fast" video, strict limit of 2-3 scenes. For "detailed", you may use more.)
     
     STEP 2: For EACH scene, you must provide:
     - 'scene_number': Sequential number
@@ -57,10 +57,13 @@ def director_tool_fn(user_instructions: str, research_material: str = None) -> D
       * The narration should flow naturally from scene to scene — it's one continuous story.
     - 'description': Visual description for the image generator (what should be DRAWN in this frame)
     - 'visual_setup': Specific visual direction for this frame (composition, key elements, focal points)
+    - 'search_query': (OPTIONAL) If this scene features a specific real-world person, historical figure, or landmark (e.g., "5th president of France"), provide a search query here so the system can find a reference photo. Leave empty if a generic drawing is fine.
+    - 'text_overlay': (OPTIONAL) If you want specific impactful text visually rendered IN the scene (e.g., a date, a powerful quote, a key stat), specify it here along with desired styling (e.g. "1969 in bold sans-serif").
     - 'key_information': Any critical facts/data from the research that this scene must convey
     - 'emotional_beat': The emotional tone of this specific scene (e.g., "playful", "tense", "triumphant", "cautionary")
     
     CRITICAL RULES:
+    - ATTRACTIVE PACING & TONE: You MUST detect pacing instructions from the user (e.g. "quick", "fast", "detailed", "sad"). Force the pacing and styling to obey these modifiers exactly.
     - You are the WRITER. The narration you write IS the final script. Make it compelling.
     - If research material is provided, DO NOT lose the information. Incorporate key facts into the story.
     - Each scene narration must be a natural continuation of the previous — it's ONE story, not isolated descriptions.
@@ -86,6 +89,8 @@ def director_tool_fn(user_instructions: str, research_material: str = None) -> D
           "narration": "...",
           "description": "...",
           "visual_setup": "...",
+          "search_query": "...",
+          "text_overlay": "...",
           "key_information": "...",
           "emotional_beat": "..."
         }},
@@ -125,6 +130,8 @@ def director_tool_fn(user_instructions: str, research_material: str = None) -> D
                 "description": "Error parsing", 
                 "narration": "Error parsing", 
                 "visual_setup": "Simple sketch",
+                "search_query": "",
+                "text_overlay": "",
                 "key_information": "",
                 "emotional_beat": "neutral"
             }]
