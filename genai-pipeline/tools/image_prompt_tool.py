@@ -4,20 +4,24 @@ from .utils import client, _save_to_run_folder
 def prompt_tool_fn(scene_description: str, visual_setup: str = "", text_overlay: str = "", global_plan: dict = None) -> str:
     """
     Generates an image prompt for a whiteboard animation frame using Nano Banana guidelines.
-    
+
     Formula: [Subject] + [Action] + [Location/context] + [Composition] + [Style]
-    
+
     Args:
         scene_description: Visual description of the scene.
         visual_setup: Specific instructions for this frame (from the Director).
         text_overlay: Specific impact text to render into the frame.
-        global_plan: The global plan dictionary (from the Director).
+        global_plan: The global plan dictionary. May include 'style_preamble' to
+            override the default whiteboard aesthetic with a project-specific
+            style direction (e.g., chalk-on-black). When set, the preamble
+            replaces the default WHAT-WHITEBOARD-ANIMATION-LOOKS-LIKE block.
     Returns:
         The image generation prompt string.
     """
     tone = global_plan.get("tone", "dramatic") if global_plan else "dramatic"
     visual_style = global_plan.get("visual_style", "Clean Whiteboard Animation") if global_plan else "Clean Whiteboard Animation"
-    
+    style_preamble = global_plan.get("style_preamble", "") if global_plan else ""
+
     tone_guidance = ""
     if tone == "informative":
         tone_guidance = "The visual should be clear, accurate, and educational. Use a neat composition."
@@ -35,36 +39,51 @@ def prompt_tool_fn(scene_description: str, visual_setup: str = "", text_overlay:
     Example: Render the text "[the exact wording]" in a bold, black, marker-style font in the corner of the frame.
     """
 
-    prompt = f"""
-    You are an expert whiteboard animation artist and creative director.
-    
-    Your job: Create an image generation prompt using the Nano Banana optimal formula:
-    [Subject] + [Action] + [Location/context] + [Composition] + [Style]
-    
+    # Style block: when a style_preamble is provided (e.g., from a script file's
+    # **Style:** frontmatter), it REPLACES the default whiteboard aesthetic. This
+    # is how chalkboard-on-black or other custom looks are enforced.
+    if style_preamble:
+        style_block = f"""
+    REQUIRED VISUAL STYLE (project-specific — overrides the default whiteboard look):
+    {style_preamble}
+
+    NEGATIVE PROMPT / STRICT FORBIDDEN:
+    - Do not deviate from the style above.
+    - Provide ONLY the final completed artwork standing alone within the specified style.
+    """
+    else:
+        style_block = """
     WHAT WHITEBOARD ANIMATION LOOKS LIKE:
     - Clean WHITE background (like a dry-erase whiteboard)
     - Simple, quick LINE DRAWINGS using black lines (just the pure ink on the board)
     - Hand-drawn aesthetic — not photorealistic, not heavily detailed
     - NO shading, NO gradients — flat simple strokes only
-    
+
     NEGATIVE PROMPT / STRICT FORBIDDEN:
     - DO NOT under any circumstances draw hands, human arms, markers, pens, or any person physically drawing the final picture!
     - Erase any concept of the artist from the scene.
     - Provide ONLY the final completed artwork standing alone upon the white background.
-    
+
     COLOR ENHANCEMENT RULE:
     - The drawing is primarily BLACK lines on WHITE background
     - 1-2 KEY objects or focal areas should have VIBRANT selective color
     - Everything else stays black-and-white line art
-    
+    """
+
+    prompt = f"""
+    You are an expert whiteboard animation artist and creative director.
+
+    Your job: Create an image generation prompt using the Nano Banana optimal formula:
+    [Subject] + [Action] + [Location/context] + [Composition] + [Style]
+    {style_block}
     SCENE DETAILS:
     - Subject / Description: "{scene_description}"
     - Action / Setup: "{visual_setup}"
     - Tone: {tone} ({tone_guidance})
     {text_guidance}
-    
-    CONSTRUCT the final image generation prompt starting directly with [Subject] and following the formula implicitly. Ensure the Style section strictly describes the whiteboard marker, flat strokes, selective color, and clean white background without blending styles or becoming overly complex. Make sure if text is included, to wrap it in exact double quotes "like this" and specify the font.
-    
+
+    CONSTRUCT the final image generation prompt starting directly with [Subject] and following the formula implicitly. Ensure the Style section strictly matches the REQUIRED VISUAL STYLE above without blending or adding incompatible elements. Make sure if text is included, to wrap it in exact double quotes "like this" and specify the font.
+
     Output: ONLY the final prompt string. No explanations, no markdown blocks.
     """
     
