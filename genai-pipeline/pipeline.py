@@ -1,6 +1,6 @@
 import os
+import sys
 import time
-import datetime
 import datetime
 from tools import (
     research_tool_fn,
@@ -20,6 +20,37 @@ from tools import (
     get_video_duration,
     reference_search_tool_fn
 )
+
+# --- Tee logger: write all stdout/stderr to a log file alongside the run output ---
+
+class _Tee:
+    """Duplicate writes to multiple streams (e.g., console + log file)."""
+    def __init__(self, *streams):
+        self._streams = streams
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data)
+                s.flush()
+            except Exception:
+                pass
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+    def isatty(self):
+        return False
+
+
+def _install_log_tee(log_path: str):
+    """Tee stdout and stderr into log_path. Console output is preserved."""
+    log_file = open(log_path, "w", encoding="utf-8", buffering=1)  # line-buffered
+    sys.stdout = _Tee(sys.__stdout__, log_file)
+    sys.stderr = _Tee(sys.__stderr__, log_file)
+    return log_file
+
 
 # --- Helper functions for robustness ---
 
@@ -57,14 +88,17 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
 # --- Main Pipeline ---
 
 def run_pipeline(user_context: str, do_research: bool = True, do_web_search: bool = False, use_internet_image_search: bool = True):
-    print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
-    
-    # 0. Setup Output Directory
+    # 0. Setup Output Directory + tee log
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(os.getcwd(), "output", f"run_{timestamp}")
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     set_output_dir(output_dir)
+
+    log_path = os.path.join(output_dir, "pipeline.log")
+    _install_log_tee(log_path)
+    print(f"Logging to: {log_path}")
+    print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
     print(f"Artifacts will be saved to: {output_dir}")
 
     # 1. Research (Optional)
@@ -264,22 +298,107 @@ def run_pipeline(user_context: str, do_research: bool = True, do_web_search: boo
         return None
 
 if __name__ == "__main__":
-    context = input("Enter the context for your video: ")
-    res_choice = input("Select research mode: [1] Deep Research, [2] Web Search (Fast), [3] None (default 2): ").strip()
-    
-    do_research = False
-    do_web_search = False
-    
-    if res_choice == '1':
-        do_research = True
-    elif res_choice == '3':
-        pass
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Generate a whiteboard explainer video from a prompt or script file.",
+    )
+    parser.add_argument(
+        "--prompt-file", "-f",
+        type=str,
+        help="Path to a file containing the video context/script. Avoids terminal-paste issues with multi-line markdown.",
+    )
+    parser.add_argument(
+        "--prompt", "-p",
+        type=str,
+        help="Inline prompt text. Use --prompt-file for multi-line input.",
+    )
+    parser.add_argument(
+        "--research", "-r",
+        choices=["deep", "web", "none"],
+        default="web",
+        help="Research mode: 'deep' (Deep Research), 'web' (Web Search, fast - default), 'none'.",
+    )
+    parser.add_argument(
+        "--no-image-search",
+        action="store_true",
+        help="Disable internet image search for visual reference grounding.",
+    )
+    parser.add_argument(
+        "--interactive", "-i",
+        action="store_true",
+        help="Force interactive prompts even when other args are provided.",
+    )
+    args = parser.parse_args()
+
+    # Resolve context
+    context = None
+    if args.prompt_file:
+        prompt_path = os.path.expanduser(args.prompt_file)
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                context = f.read().strip()
+            print(f"Loaded prompt from {prompt_path} ({len(context)} chars)")
+        except FileNotFoundError:
+            print(f"ERROR: prompt file not found: {prompt_path}")
+            sys.exit(1)
+    elif args.prompt:
+        context = args.prompt
+    elif args.interactive or sys.stdin.isatty():
+        # Interactive: ask for a file path instead of inline text. This avoids the
+        # terminal-paste problem with multi-line markdown (newlines would submit early).
+        while True:
+            raw = input("Enter path to prompt file (or '-' for stdin): ").strip()
+            if raw == "-":
+                print("Reading prompt from stdin (end with Ctrl-D):")
+                context = sys.stdin.read().strip()
+                break
+            # Strip surrounding quotes if user pastes a quoted path
+            if len(raw) >= 2 and raw[0] in ("'", '"') and raw[-1] == raw[0]:
+                raw = raw[1:-1]
+            prompt_path = os.path.expanduser(raw)
+            if os.path.exists(prompt_path):
+                try:
+                    with open(prompt_path, "r", encoding="utf-8") as f:
+                        context = f.read().strip()
+                    print(f"Loaded prompt from {prompt_path} ({len(context)} chars)")
+                    break
+                except Exception as e:
+                    print(f"  Could not read file: {e}")
+            else:
+                print(f"  File not found: {prompt_path}")
+                retry = input("  Try another path? [Y/n]: ").strip().lower()
+                if retry == "n":
+                    sys.exit(1)
     else:
-        do_web_search = True
-        
-    image_search_choice = input("Enable internet image search for references? [Y/n] (default Y): ").strip().lower()
-    use_internet_image_search = False if image_search_choice in ['n', 'no'] else True
-        
-    run_pipeline(context, do_research=do_research, do_web_search=do_web_search, use_internet_image_search=use_internet_image_search)
+        context = sys.stdin.read().strip()
+
+    if not context:
+        print("ERROR: empty context. Use --prompt-file <path> or --prompt '<text>'.")
+        sys.exit(1)
+
+    # Resolve research mode (CLI flag wins; otherwise interactive default if no flags given)
+    if args.interactive and not (args.prompt_file or args.prompt):
+        res_choice = input("Select research mode: [1] Deep Research, [2] Web Search (Fast), [3] None (default 2): ").strip()
+        if res_choice == '1':
+            do_research, do_web_search = True, False
+        elif res_choice == '3':
+            do_research, do_web_search = False, False
+        else:
+            do_research, do_web_search = False, True
+        image_search_choice = input("Enable internet image search for references? [Y/n] (default Y): ").strip().lower()
+        use_internet_image_search = False if image_search_choice in ['n', 'no'] else True
+    else:
+        do_research = (args.research == "deep")
+        do_web_search = (args.research == "web")
+        use_internet_image_search = not args.no_image_search
+
+    run_pipeline(
+        context,
+        do_research=do_research,
+        do_web_search=do_web_search,
+        use_internet_image_search=use_internet_image_search,
+    )
 
 
