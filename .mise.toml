@@ -1,0 +1,42 @@
+# mise config for storyboard-ai (APEX videos)
+# https://mise.jdx.dev/lang/python.html
+
+[tools]
+python = "3.12"
+
+[env]
+# Auto-create + activate a Python venv in this directory.
+# When you `cd` into this folder with mise active, the venv is on PATH.
+_.python.venv = { path = ".venv", create = true }
+# Auto-load the pipeline's .env so Vertex env vars are available to mise tasks
+# (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GOOGLE_APPLICATION_CREDENTIALS).
+_.file = "genai-pipeline/.env"
+
+[tasks.setup]
+description = "Install Python deps into the storyboard-ai venv"
+# Use the venv's python explicitly to avoid landing packages in the wrong Python.
+# ensurepip handles uv-created venvs that ship without pip by default.
+run = """
+.venv/bin/python -m ensurepip --upgrade
+.venv/bin/python -m pip install --upgrade pip wheel setuptools
+.venv/bin/python -m pip install \
+  google-genai \
+  google-adk \
+  python-dotenv \
+  opencv-python \
+  numpy \
+  Pillow \
+  requests
+"""
+
+[tasks.preflight]
+description = "Verify Vertex AI auth + ffmpeg + venv"
+run = """
+.venv/bin/python -c "from google import genai; c = genai.Client(); print('genai client OK:', type(c).__name__)"
+ffmpeg -version | head -1
+.venv/bin/python -c "import cv2, numpy, PIL, requests, dotenv; print('imports OK')"
+"""
+
+[tasks.run]
+description = "Run the pipeline. Asks for a path to a prompt file (or pass --prompt-file directly)."
+run = "cd genai-pipeline && ../.venv/bin/python pipeline.py"
