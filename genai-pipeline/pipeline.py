@@ -5,9 +5,9 @@ import datetime
 from tools import (
     research_tool_fn,
     web_grounded_research_tool_fn,
-    director_tool_fn, 
-    prompt_tool_fn, 
-    image_gen_tool_fn, 
+    director_tool_fn,
+    prompt_tool_fn,
+    image_gen_tool_fn,
     generate_tts_audio_tool_fn,
     segmentation_tool_fn,
     merge_audio_video_tool_fn,
@@ -20,6 +20,7 @@ from tools import (
     get_video_duration,
     reference_search_tool_fn
 )
+from tools.script_parser import parse_script_file
 
 # --- Tee logger: write all stdout/stderr to a log file alongside the run output ---
 
@@ -87,7 +88,19 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
 
 # --- Main Pipeline ---
 
-def run_pipeline(user_context: str, do_research: bool = True, do_web_search: bool = False, use_internet_image_search: bool = True):
+def run_pipeline(
+    user_context: str,
+    do_research: bool = True,
+    do_web_search: bool = False,
+    use_internet_image_search: bool = True,
+    prebuilt_plan: dict = None,
+):
+    """Execute the storyboard pipeline.
+
+    When `prebuilt_plan` is provided (e.g., from a parsed script file), the
+    research and Director steps are skipped entirely. The plan is used as-is,
+    so each scene's narration is whatever the author wrote — no LLM rewrites.
+    """
     # 0. Setup Output Directory + tee log
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(os.getcwd(), "output", f"run_{timestamp}")
@@ -98,28 +111,51 @@ def run_pipeline(user_context: str, do_research: bool = True, do_web_search: boo
     log_path = os.path.join(output_dir, "pipeline.log")
     _install_log_tee(log_path)
     print(f"Logging to: {log_path}")
-    print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
-    print(f"Artifacts will be saved to: {output_dir}")
 
-    # 1. Research (Optional)
-    research_report = None
-    if do_research:
-        print("\nStep 1: Performing Deep Research...")
-        research_report = research_tool_fn(user_context)
-        print("Research completed.")
-    elif do_web_search:
-        print("\nStep 1: Performing Web-Grounded Research (Fast)...")
-        research_report = web_grounded_research_tool_fn(user_context)
-        print("Web-Grounded Research completed.")
+    if prebuilt_plan:
+        # ----- Script-file path: skip research + Director, use plan verbatim -----
+        global_plan = prebuilt_plan.get("global_plan", {})
+        scenes = prebuilt_plan.get("scenes", [])
+        title = global_plan.get("title", "(untitled)")
+        print(f"--- Starting Storyboard Pipeline from prebuilt plan: {title} ---")
+        print(f"Artifacts will be saved to: {output_dir}")
+        print("\nStep 1: Skipping research (prebuilt plan provided).")
+        print("\nStep 2: Skipping Director (prebuilt plan provided).")
+        print(f"Plan has {len(scenes)} scenes. Source: {global_plan.get('source', 'unknown')}")
+        if global_plan.get("style_preamble"):
+            preview = global_plan["style_preamble"][:120]
+            print(f"Style preamble in effect: {preview}{'...' if len(global_plan['style_preamble']) > 120 else ''}")
+        # Persist the plan so the run directory has the same artifact the Director path produces.
+        try:
+            import json as _json
+            with open(os.path.join(output_dir, "video_plan.json"), "w", encoding="utf-8") as f:
+                _json.dump(prebuilt_plan, f, indent=2)
+        except Exception as e:
+            print(f"  (note: could not persist video_plan.json: {e})")
     else:
-        print("\nStep 1: Skipping Research as per request. Using provided context directly.")
+        # ----- Default path: research + Director plan the video -----
+        print(f"--- Starting Storyboard Pipeline for context: {user_context} ---")
+        print(f"Artifacts will be saved to: {output_dir}")
 
-    # Step 2: Director Planning — The Director plans the entire video journey
-    print("\nStep 2: Director Planning & Scene Writing...")
-    video_plan = director_tool_fn(user_context, research_material=research_report)
-    global_plan = video_plan.get("global_plan", {})
-    scenes = video_plan.get("scenes", [])
-    print(f"Director planned {len(scenes)} scenes. Tone: {global_plan.get('tone')}, Arc: {global_plan.get('narrative_arc', 'N/A')}")
+        # 1. Research (Optional)
+        research_report = None
+        if do_research:
+            print("\nStep 1: Performing Deep Research...")
+            research_report = research_tool_fn(user_context)
+            print("Research completed.")
+        elif do_web_search:
+            print("\nStep 1: Performing Web-Grounded Research (Fast)...")
+            research_report = web_grounded_research_tool_fn(user_context)
+            print("Web-Grounded Research completed.")
+        else:
+            print("\nStep 1: Skipping Research as per request. Using provided context directly.")
+
+        # Step 2: Director Planning — The Director plans the entire video journey
+        print("\nStep 2: Director Planning & Scene Writing...")
+        video_plan = director_tool_fn(user_context, research_material=research_report)
+        global_plan = video_plan.get("global_plan", {})
+        scenes = video_plan.get("scenes", [])
+        print(f"Director planned {len(scenes)} scenes. Tone: {global_plan.get('tone')}, Arc: {global_plan.get('narrative_arc', 'N/A')}")
 
     final_videos = []
     prev_image_path = None
@@ -208,16 +244,21 @@ def run_pipeline(user_context: str, do_research: bool = True, do_web_search: boo
                 continue
             
             # --- 3e. Narration Refinement (non-critical, can fallback to original) ---
+            # Skip refinement when the plan came from a script file — the author
+            # supplied the narration verbatim and doesn't want LLM rewrites.
             v_duration = get_video_duration(anim_video_path)
-            print(f"Scene {scene_num}: Refining narration (Duration: {v_duration:.1f}s)...")
-            try:
-                refined = refine_narration_tool_fn(narration, image_path, video_duration=v_duration, global_plan=global_plan)
-                if refined and "Error" not in refined:
-                    narration = refined
-                else:
-                    print(f"  ⚠ Narration refinement returned error. Using Director's original narration.")
-            except Exception as e:
-                print(f"  ⚠ Narration refinement failed (non-critical): {e}. Using Director's original narration.")
+            if global_plan.get("source") == "script_file":
+                print(f"Scene {scene_num}: Skipping narration refinement (script-file mode — narration is verbatim).")
+            else:
+                print(f"Scene {scene_num}: Refining narration (Duration: {v_duration:.1f}s)...")
+                try:
+                    refined = refine_narration_tool_fn(narration, image_path, video_duration=v_duration, global_plan=global_plan)
+                    if refined and "Error" not in refined:
+                        narration = refined
+                    else:
+                        print(f"  ⚠ Narration refinement returned error. Using Director's original narration.")
+                except Exception as e:
+                    print(f"  ⚠ Narration refinement failed (non-critical): {e}. Using Director's original narration.")
             
             # --- 3f. TTS Generation (with retry) ---
             print(f"Scene {scene_num}: Generating narration audio...")
@@ -305,6 +346,16 @@ if __name__ == "__main__":
         description="Generate a whiteboard explainer video from a prompt or script file.",
     )
     parser.add_argument(
+        "--script-file", "-s",
+        type=str,
+        help=(
+            "Path to a structured markdown script file with '## Scene N' headers "
+            "and **Narration**/**On-screen text**/**Visual cue** blocks. "
+            "Bypasses the LLM Director — narration is used VERBATIM. "
+            "The script's **Style:** frontmatter is propagated to every image prompt."
+        ),
+    )
+    parser.add_argument(
         "--prompt-file", "-f",
         type=str,
         help="Path to a file containing the video context/script. Avoids terminal-paste issues with multi-line markdown.",
@@ -331,6 +382,30 @@ if __name__ == "__main__":
         help="Force interactive prompts even when other args are provided.",
     )
     args = parser.parse_args()
+
+    # If --script-file is provided, parse it and run the pipeline with the
+    # prebuilt plan. Skips the LLM Director and uses narration verbatim.
+    if args.script_file:
+        script_path = os.path.expanduser(args.script_file)
+        if not os.path.exists(script_path):
+            print(f"ERROR: script file not found: {script_path}")
+            sys.exit(1)
+        try:
+            video_plan = parse_script_file(script_path)
+        except Exception as e:
+            print(f"ERROR: failed to parse {script_path}: {e}")
+            sys.exit(1)
+        print(
+            f"Loaded {len(video_plan.get('scenes', []))} scenes from {script_path}"
+        )
+        run_pipeline(
+            user_context=video_plan["global_plan"].get("title", "(from script file)"),
+            do_research=False,
+            do_web_search=False,
+            use_internet_image_search=not args.no_image_search,
+            prebuilt_plan=video_plan,
+        )
+        sys.exit(0)
 
     # Resolve context
     context = None
