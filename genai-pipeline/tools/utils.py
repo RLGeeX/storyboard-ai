@@ -3,9 +3,17 @@ import wave
 from google import genai
 from config import GEMINI_API_KEY
 
-# Setup GenAI Client
+# Setup GenAI Client.
+# Prefers Vertex AI when GOOGLE_GENAI_USE_VERTEXAI is set (with GOOGLE_CLOUD_PROJECT
+# and GOOGLE_CLOUD_LOCATION). Falls back to API-key mode for backward compatibility.
 client = None
-if GEMINI_API_KEY:
+if os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true", "yes"):
+    client = genai.Client(
+        vertexai=True,
+        project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-east1"),
+    )
+elif GEMINI_API_KEY:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Global Output Management
