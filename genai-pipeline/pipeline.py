@@ -234,9 +234,14 @@ def run_pipeline(
             except Exception as e:
                 print(f"  ⚠ Segmentation failed (non-critical): {e}. Continuing without segmentation.")
             
-            # --- 3d. Whiteboard Animation Generation ---
+            # --- 3d. Whiteboard / Chalkboard Animation Generation ---
+            # The animator auto-detects chalk-on-black from the style preamble.
             print(f"Scene {scene_num}: Generating whiteboard animation...")
-            anim_video_path = draw_animation_tool_fn(image_path, segmentation_results_path=seg_json_path)
+            anim_video_path = draw_animation_tool_fn(
+                image_path,
+                segmentation_results_path=seg_json_path,
+                style_preamble=global_plan.get("style_preamble", ""),
+            )
             
             if not _is_valid_path(anim_video_path):
                 print(f"  ✗ SKIPPING Scene {scene_num}: Animation generation failed.")

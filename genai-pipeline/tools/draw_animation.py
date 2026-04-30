@@ -14,10 +14,14 @@ def euc_dist(arr1, point):
     square_sub = (arr1 - point) ** 2
     return np.sqrt(np.sum(square_sub, axis=1))
 
-def preprocess_image(img_path, resize_wd, resize_ht):
+def preprocess_image(img_path, resize_wd, resize_ht, chalk_mode=False):
     """
     Reads an image, resizes it, and generates a binary adaptive threshold mask.
     The threshold mask is used to identify "ink" pixels for the animation.
+
+    In chalk_mode the source has light strokes on a dark background. We invert
+    the grayscale before thresholding so chalk strokes register as "dark" — the
+    rest of the pipeline can find them with its existing dark-block logic.
     """
     img = cv2.imread(img_path)
     if img is None:
@@ -26,11 +30,30 @@ def preprocess_image(img_path, resize_wd, resize_ht):
     img = cv2.resize(img, (resize_wd, resize_ht))
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    # In chalk mode, invert so light chalk → dark "ink" for thresholding
+    src_for_thresh = cv2.bitwise_not(img_gray) if chalk_mode else img_gray
+
     # gaussian adaptive thresholding: identifies edges and details
     img_thresh = cv2.adaptiveThreshold(
-        img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 10
+        src_for_thresh, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 10
     )
     return img, img_thresh, img_ht, img_wd, img_gray
+
+
+def _is_chalk_style(style_preamble: str) -> bool:
+    """
+    Heuristic: detect chalk-on-black aesthetic from a style preamble string.
+    Looks for explicit signals like "chalk", "blackboard", "chalkboard", or
+    the phrase "on black background".
+    """
+    if not style_preamble:
+        return False
+    s = style_preamble.lower()
+    if "chalk" in s or "chalkboard" in s or "blackboard" in s:
+        return True
+    if "black background" in s and ("white" in s or "chalk" in s):
+        return True
+    return False
 
 def preprocess_hand_image(hand_path, hand_mask_path):
     """
@@ -91,7 +114,8 @@ def draw_hand_on_img(drawing, hand, drawing_coord_x, drawing_coord_y, hand_mask_
 
 def draw_masked_object(
     drawn_frame, img_thresh, img_orig, video_object, hand, hand_mask_inv, hand_ht, hand_wd,
-    resize_ht, resize_wd, split_len, object_mask=None, skip_rate=5, black_pixel_threshold=10
+    resize_ht, resize_wd, split_len, object_mask=None, skip_rate=5, black_pixel_threshold=10,
+    chalk_mode=False
 ):
     """
     Core animation logic: simulates drawing a specific part of the image (or the whole image).
@@ -139,17 +163,27 @@ def draw_masked_object(
         h_s, h_e = range_h_start, min(range_h_end, resize_wd)
         
         if v_s < resize_ht and h_s < resize_wd:
-            # Transfer the ink to the 'drawn_frame'
-            block = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]][:v_e-v_s, :h_e-h_s]
-            if object_mask is not None:
-                # Only update pixels that belong to this object's mask (255)
-                # This prevents the background pass from overwriting already colored objects
-                m_slice = object_mask[v_s:v_e, h_s:h_e] == 255
-                for c in range(3):
-                   drawn_frame[v_s:v_e, h_s:h_e, c][m_slice] = block[m_slice]
+            if chalk_mode:
+                # Reveal the actual source pixels (chalk strokes on the source
+                # already look right) — no threshold, no recoloring.
+                src_block = img_orig[v_s:v_e, h_s:h_e]
+                if object_mask is not None:
+                    m_slice = object_mask[v_s:v_e, h_s:h_e] == 255
+                    drawn_frame[v_s:v_e, h_s:h_e][m_slice] = src_block[m_slice]
+                else:
+                    drawn_frame[v_s:v_e, h_s:h_e] = src_block
             else:
-                for c in range(3):
-                    drawn_frame[v_s:v_e, h_s:h_e, c] = block
+                # Whiteboard mode: write the thresholded ink (black on white)
+                block = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]][:v_e-v_s, :h_e-h_s]
+                if object_mask is not None:
+                    # Only update pixels that belong to this object's mask (255)
+                    # This prevents the background pass from overwriting already colored objects
+                    m_slice = object_mask[v_s:v_e, h_s:h_e] == 255
+                    for c in range(3):
+                       drawn_frame[v_s:v_e, h_s:h_e, c][m_slice] = block[m_slice]
+                else:
+                    for c in range(3):
+                        drawn_frame[v_s:v_e, h_s:h_e, c] = block
 
         # Position for the drawing hand
         hand_coord_x = h_s + int((h_e - h_s) / 2)
@@ -166,11 +200,15 @@ def draw_masked_object(
         counter += 1
         # Periodically write a frame to the video to create the animation effect
         if counter % skip_rate == 0:
-            frame_to_write = draw_hand_on_img(
-                drawn_frame.copy(), hand, hand_coord_x, hand_coord_y, hand_mask_inv,
-                hand_ht, hand_wd, resize_ht, resize_wd
-            )
-            video_object.write(frame_to_write)
+            if chalk_mode:
+                # No hand overlay in chalk mode — preserves the chalkboard feel
+                video_object.write(drawn_frame.copy())
+            else:
+                frame_to_write = draw_hand_on_img(
+                    drawn_frame.copy(), hand, hand_coord_x, hand_coord_y, hand_mask_inv,
+                    hand_ht, hand_wd, resize_ht, resize_wd
+                )
+                video_object.write(frame_to_write)
 
     # After the animation pass, fill the area with the full-color original pixels
     if object_mask is not None:
@@ -187,15 +225,17 @@ def draw_animation_tool_fn(
     split_len: int = 10,
     object_skip_rate: int = 10,
     bg_object_skip_rate: int = 14,
-    end_duration_sec: int = 1
+    end_duration_sec: int = 1,
+    chalk_mode: bool = False,
+    style_preamble: str = ""
 ) -> str:
     """
-    Generates a whiteboard animation video of an image.
-    
-    If 'segmentation_results_path' is provided (from the segmentation tool), 
+    Generates a whiteboard (or chalkboard) animation video of an image.
+
+    If 'segmentation_results_path' is provided (from the segmentation tool),
     the tool will draw each object one by one before drawing the background.
     Otherwise, it draws the entire image in a single pass.
-    
+
     Args:
         image_path (str): Absolute path to the input image.
         segmentation_results_path (str, optional): Path to the JSON output of the segmentation tool.
@@ -206,29 +246,47 @@ def draw_animation_tool_fn(
         object_skip_rate (int): Write 1 frame for every N grid blocks drawn for objects. Default 8.
         bg_object_skip_rate (int): Skip rate for background drawing (usually faster). Default 14.
         end_duration_sec (int): How many seconds to show the finished image at the end. Default 3.
-        
+        chalk_mode (bool): If True, render as chalk-on-black instead of whiteboard.
+            Canvas starts black, no hand is overlaid, and progressive reveal uses
+            the source image's actual pixels (preserving the chalk look).
+        style_preamble (str): If provided and chalk_mode is False, the preamble is
+            inspected for chalk-style keywords; chalk_mode is enabled automatically
+            when the style requests chalk-on-black.
+
     Returns:
         str: Absolute path to the generated MP4 video.
     """
+    # Auto-detect chalk style from the preamble if the caller didn't force it
+    if not chalk_mode and _is_chalk_style(style_preamble):
+        chalk_mode = True
+        print("  draw_animation: chalk-mode enabled (auto-detected from style_preamble)")
+
     # Locate hand assets relative to the package structure
     assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
     hand_path = os.path.join(assets_dir, "drawing-hand.png")
     hand_mask_path = os.path.join(assets_dir, "hand-mask.png")
 
-    # Load and prepare the image
-    img, img_thresh, img_ht, img_wd, img_gray = preprocess_image(image_path, resize_wd, resize_ht)
+    # Load and prepare the image (chalk_mode inverts grayscale before thresholding)
+    img, img_thresh, img_ht, img_wd, img_gray = preprocess_image(
+        image_path, resize_wd, resize_ht, chalk_mode=chalk_mode
+    )
     if img is None:
         return f"Error: Could not read image at {image_path}"
 
-    # Load and prepare the drawing hand
-    hand, hand_mask, hand_mask_inv, hand_ht, hand_wd = preprocess_hand_image(hand_path, hand_mask_path)
-    if hand is None:
-        return "Error: Hand assets not found. Ensure adk-agent/assets contains hand images."
+    # Load the drawing hand only when we'll actually use it (whiteboard mode).
+    if chalk_mode:
+        hand = hand_mask = hand_mask_inv = None
+        hand_ht = hand_wd = 0
+    else:
+        hand, hand_mask, hand_mask_inv, hand_ht, hand_wd = preprocess_hand_image(hand_path, hand_mask_path)
+        if hand is None:
+            return "Error: Hand assets not found. Ensure adk-agent/assets contains hand images."
 
     # Prepare output video
     timestamp = int(time.time())
-    output_filename = f"whiteboard_animation_{timestamp}.mp4"
-    temp_video_path = output_filename 
+    name_prefix = "chalkboard_animation" if chalk_mode else "whiteboard_animation"
+    output_filename = f"{name_prefix}_{timestamp}.mp4"
+    temp_video_path = output_filename
 
     video_object = cv2.VideoWriter(
         temp_video_path,
@@ -237,8 +295,9 @@ def draw_animation_tool_fn(
         (resize_wd, resize_ht),
     )
 
-    # canvas initialized to white
-    drawn_frame = np.full((resize_ht, resize_wd, 3), 255, dtype=np.uint8)
+    # Canvas: black for chalkboard, white for whiteboard
+    canvas_value = 0 if chalk_mode else 255
+    drawn_frame = np.full((resize_ht, resize_wd, 3), canvas_value, dtype=np.uint8)
 
     if segmentation_results_path and os.path.exists(segmentation_results_path):
         # SUB-OBJECT ANIMATION MODE
@@ -312,23 +371,26 @@ def draw_animation_tool_fn(
             # Animate drawing this specific merged object
             draw_masked_object(
                 drawn_frame, img_thresh, img, video_object, hand, hand_mask_inv, hand_ht, hand_wd,
-                resize_ht, resize_wd, split_len, object_mask=merged_mask, skip_rate=object_skip_rate
+                resize_ht, resize_wd, split_len, object_mask=merged_mask, skip_rate=object_skip_rate,
+                chalk_mode=chalk_mode
             )
-            
+
             # Mark this object's area as 'drawn' in the background mask
             obj_ind = np.where(merged_mask == 255)
             background_mask[obj_ind] = 0
-            
+
         # Draw the remaining area (background)
         draw_masked_object(
             drawn_frame, img_thresh, img, video_object, hand, hand_mask_inv, hand_ht, hand_wd,
-            resize_ht, resize_wd, split_len=20, object_mask=background_mask, skip_rate=bg_object_skip_rate
+            resize_ht, resize_wd, split_len=20, object_mask=background_mask, skip_rate=bg_object_skip_rate,
+            chalk_mode=chalk_mode
         )
     else:
         # SINGLE PASS MODE
         draw_masked_object(
             drawn_frame, img_thresh, img, video_object, hand, hand_mask_inv, hand_ht, hand_wd,
-            resize_ht, resize_wd, split_len, skip_rate=object_skip_rate
+            resize_ht, resize_wd, split_len, skip_rate=object_skip_rate,
+            chalk_mode=chalk_mode
         )
 
     # Finally, show the full-color final image for a few seconds
