@@ -51,8 +51,10 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None, subject_ref
         return "Error: GEMINI_API_KEY not configured."
 
     try:
-        # Explicitly ask for 16:9 just in case the backend config gets ignored
-        contents = [prompt + " Ensure the generated image is in 16:9 aspect ratio (1920x1080). CRITICAL: DO NOT draw any hands, human arms, markers, pens, or people drawing. Draw ONLY the pure artwork on the whiteboard."]
+        # The actual aspect ratio is set via the API config below (image_config).
+        # The in-prompt hint is a belt-and-suspenders backup in case the backend
+        # quietly ignores image_config — text guidance steers the layout regardless.
+        contents = [prompt + " Compose the artwork to fill a 16:9 widescreen frame (wider than tall). CRITICAL: DO NOT draw any hands, human arms, markers, pens, or people drawing. Draw ONLY the pure artwork on the whiteboard."]
         
         # Style consistency reference
         if reference_image_path and os.path.exists(reference_image_path):
@@ -83,10 +85,23 @@ def image_gen_tool_fn(prompt: str, reference_image_path: str = None, subject_ref
                 print(f"Skipping internet reference image {subject_reference_image_path} as it was deemed not useful.")
 
 
+        # Build the generation config. We try to set aspect_ratio=16:9 via the
+        # image_config field; if the installed google-genai SDK is too old to
+        # have that field, we fall back to no config and rely on the in-prompt
+        # hint plus letterboxing during animation.
+        gen_config = None
+        try:
+            gen_config = types.GenerateContentConfig(
+                image_config=types.ImageConfig(aspect_ratio="16:9")
+            )
+        except (AttributeError, TypeError) as e:
+            print(f"  (note: image_config unsupported by SDK; falling back: {e})")
+
         # Use the configured image generation model
         response = utils.client.models.generate_content(
             model=IMAGE_GEN_MODEL,
             contents=contents,
+            **({"config": gen_config} if gen_config is not None else {}),
         )
         
         output_path = None
