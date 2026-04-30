@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import shutil
 import datetime
 from tools import (
     research_tool_fn,
@@ -67,6 +68,12 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
     """
     Retry a function call on failure (handles transient network errors).
     Returns the result on success, or None on exhausted retries.
+
+    Quota errors (HTTP 429 / RESOURCE_EXHAUSTED) get longer, exponential waits
+    because Vertex AI image-gen quotas reset on a per-minute window — an 8s
+    retry just hits the same window again. We start at 30s and double each
+    attempt (30 → 60 → 120) so a fresh quota window is virtually guaranteed
+    by the third try.
     """
     last_error = None
     for attempt in range(1, max_retries + 1):
@@ -78,13 +85,37 @@ def _retry(fn, *args, max_retries: int = 3, delay: float = 5.0, label: str = "",
             return result
         except Exception as e:
             last_error = e
+            err_str = str(e)
+            is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
             if attempt < max_retries:
-                print(f"  ⚠ {label} failed (attempt {attempt}/{max_retries}): {e}")
-                print(f"  Retrying in {delay}s...")
-                time.sleep(delay)
+                wait = max(delay, 30.0) * (2 ** (attempt - 1)) if is_quota else delay
+                tag = "quota/429" if is_quota else "error"
+                print(f"  ⚠ {label} failed (attempt {attempt}/{max_retries}, {tag}): {e}")
+                print(f"  Retrying in {wait:.0f}s...")
+                time.sleep(wait)
             else:
                 print(f"  ✗ {label} failed after {max_retries} attempts: {e}")
     return None
+
+# --- Image cache helpers (per-scene baking) ---
+
+def canonical_image_dir(script_path: str) -> str:
+    """
+    Cache directory for baked per-scene images.
+
+    Lives next to the script file as ``<script-stem>-images/`` so the user can
+    eyeball, replace, or version-control the images alongside the script.
+    """
+    script_path = os.path.abspath(script_path)
+    parent = os.path.dirname(script_path)
+    stem = os.path.splitext(os.path.basename(script_path))[0]
+    return os.path.join(parent, f"{stem}-images")
+
+
+def baked_image_path(image_dir: str, scene_num: int) -> str:
+    """Canonical filename for a baked scene image inside `image_dir`."""
+    return os.path.join(image_dir, f"scene_{scene_num}.png")
+
 
 # --- Main Pipeline ---
 
@@ -94,6 +125,8 @@ def run_pipeline(
     do_web_search: bool = False,
     use_internet_image_search: bool = True,
     prebuilt_plan: dict = None,
+    image_cache_dir: str = None,
+    bake_only: int = None,
 ):
     """Execute the storyboard pipeline.
 
@@ -161,13 +194,27 @@ def run_pipeline(
     prev_image_path = None
     failed_scenes = []
 
+    # Image cache setup — when set, generated images are cached at
+    # <image_cache_dir>/scene_N.png and re-used on subsequent runs unless
+    # bake_only is requesting a fresh re-roll of a specific scene.
+    if image_cache_dir:
+        os.makedirs(image_cache_dir, exist_ok=True)
+        print(f"Image cache: {image_cache_dir}")
+    if bake_only:
+        print(f"Bake mode: regenerating only Scene {bake_only} — pipeline will stop after image generation.")
+
     # 3. Asset Generation & Processing
     print("\nStep 3: Processing Scenes...")
     for i, scene in enumerate(scenes):
         scene_num = i + 1
+
+        # Bake mode: only process the target scene, skip everything else
+        if bake_only and scene_num != bake_only:
+            continue
+
         print(f"\n{'='*60}")
         print(f"--- Processing Scene {scene_num}/{len(scenes)} ---")
-        
+
         try:
             description = scene.get('description', 'No description')
             narration = scene.get('narration', 'No narration')
@@ -195,33 +242,64 @@ def run_pipeline(
             elif not use_internet_image_search and search_query:
                 print(f"Scene {scene_num}: Internet image search disabled. Skipping reference for '{search_query}'.")
             
-            # --- 3a. Generate Image Prompt (with retry) ---
-            print(f"Scene {scene_num}: Generating image prompt...")
-            img_prompt = _retry(
-                prompt_tool_fn, description, 
-                visual_setup=visual_setup, text_overlay=text_overlay, global_plan=global_plan,
-                label=f"Scene {scene_num} image prompt", max_retries=2
+            # --- 3a. Cache check / Generate Image Prompt (with retry) ---
+            # If a baked image exists for this scene and we're NOT in bake-only
+            # mode (which always regenerates the targeted scene), skip both the
+            # prompt and image-gen steps and use the cached image directly.
+            cached_path = (
+                baked_image_path(image_cache_dir, scene_num)
+                if image_cache_dir else None
             )
-            if not img_prompt:
-                print(f"  ✗ SKIPPING Scene {scene_num}: Image prompt generation failed.")
-                failed_scenes.append(scene_num)
-                continue
-            
-            # --- 3b. Generate Image (with retry) ---
-            print(f"Scene {scene_num}: Generating image...")
-            image_path = _retry(
-                image_gen_tool_fn, img_prompt,
-                reference_image_path=prev_image_path,
-                subject_reference_image_path=subject_image_path,
-                label=f"Scene {scene_num} image gen", max_retries=3, delay=8.0
+            use_cached = (
+                cached_path
+                and os.path.exists(cached_path)
+                and bake_only != scene_num
             )
-            
-            if not _is_valid_path(image_path):
-                print(f"  ✗ SKIPPING Scene {scene_num}: Image generation failed — no valid image produced.")
-                failed_scenes.append(scene_num)
-                continue
-                
-            prev_image_path = image_path 
+
+            if use_cached:
+                print(f"Scene {scene_num}: Using cached image — {cached_path}")
+                image_path = cached_path
+            else:
+                print(f"Scene {scene_num}: Generating image prompt...")
+                img_prompt = _retry(
+                    prompt_tool_fn, description,
+                    visual_setup=visual_setup, text_overlay=text_overlay, global_plan=global_plan,
+                    label=f"Scene {scene_num} image prompt", max_retries=2
+                )
+                if not img_prompt:
+                    print(f"  ✗ SKIPPING Scene {scene_num}: Image prompt generation failed.")
+                    failed_scenes.append(scene_num)
+                    continue
+
+                # --- 3b. Generate Image (with retry) ---
+                print(f"Scene {scene_num}: Generating image...")
+                image_path = _retry(
+                    image_gen_tool_fn, img_prompt,
+                    reference_image_path=prev_image_path,
+                    subject_reference_image_path=subject_image_path,
+                    label=f"Scene {scene_num} image gen", max_retries=3, delay=8.0
+                )
+
+                if not _is_valid_path(image_path):
+                    print(f"  ✗ SKIPPING Scene {scene_num}: Image generation failed — no valid image produced.")
+                    failed_scenes.append(scene_num)
+                    continue
+
+                # Cache the freshly-baked image for future runs.
+                if cached_path:
+                    try:
+                        shutil.copy2(image_path, cached_path)
+                        print(f"  ✓ Cached image to: {cached_path}")
+                    except Exception as e:
+                        print(f"  ⚠ Could not cache image to {cached_path}: {e}")
+
+            # In bake-only mode: image is in hand, stop here. No SAM, no animation.
+            if bake_only == scene_num:
+                print(f"\n✓ Scene {scene_num} baked. Image available at: {cached_path or image_path}")
+                print("Bake mode: stopping pipeline (no animation, audio, or merge for this run).")
+                return
+
+            prev_image_path = image_path
 
             # --- 3c. SAM Segmentation (non-critical, can fail gracefully) ---
             print(f"Scene {scene_num}: Segmenting image objects...")
@@ -386,6 +464,24 @@ if __name__ == "__main__":
         action="store_true",
         help="Force interactive prompts even when other args are provided.",
     )
+    parser.add_argument(
+        "--bake-scene", "-b",
+        type=int,
+        metavar="N",
+        help=(
+            "Bake only scene N: generate the prompt and image, save to "
+            "<script-stem>-images/scene_N.png, and stop. No animation, no "
+            "audio, no merge. Re-run to re-roll the same scene."
+        ),
+    )
+    parser.add_argument(
+        "--no-image-cache",
+        action="store_true",
+        help=(
+            "Don't read or write the per-scene image cache. Forces fresh image "
+            "generation for every scene on this run."
+        ),
+    )
     args = parser.parse_args()
 
     # If --script-file is provided, parse it and run the pipeline with the
@@ -400,15 +496,27 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"ERROR: failed to parse {script_path}: {e}")
             sys.exit(1)
-        print(
-            f"Loaded {len(video_plan.get('scenes', []))} scenes from {script_path}"
-        )
+
+        n_scenes = len(video_plan.get("scenes", []))
+        print(f"Loaded {n_scenes} scenes from {script_path}")
+
+        # Per-scene image cache lives next to the script as <stem>-images/.
+        cache_dir = None if args.no_image_cache else canonical_image_dir(script_path)
+
+        # Validate bake-scene index
+        bake_target = args.bake_scene
+        if bake_target is not None and (bake_target < 1 or bake_target > n_scenes):
+            print(f"ERROR: --bake-scene {bake_target} out of range (script has {n_scenes} scenes)")
+            sys.exit(1)
+
         run_pipeline(
             user_context=video_plan["global_plan"].get("title", "(from script file)"),
             do_research=False,
             do_web_search=False,
             use_internet_image_search=not args.no_image_search,
             prebuilt_plan=video_plan,
+            image_cache_dir=cache_dir,
+            bake_only=bake_target,
         )
         sys.exit(0)
 
