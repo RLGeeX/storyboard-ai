@@ -38,5 +38,9 @@ ffmpeg -version | head -1
 """
 
 [tasks.run]
-description = "Run the pipeline. Asks for a path to a prompt file (or pass --prompt-file directly)."
-run = "cd genai-pipeline && ../.venv/bin/python pipeline.py"
+description = "Run the pipeline. Pass --script-file/--prompt-file via -- (see examples in README)."
+# Use exec + "$@" so quoted args (paths containing spaces, etc.) survive intact.
+# Example: mise run run -- --script-file '/path/with spaces/script.md'
+run = '''
+cd genai-pipeline && exec ../.venv/bin/python pipeline.py "$@"
+'''
